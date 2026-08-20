@@ -1,4 +1,4 @@
-# RxWatch
+# RxWatch: Drug Shortage Intelligence Platform
 
 **Predicting the cause of drug shortages from public FDA data, for pharmacies that don't have access to proprietary purchasing data.**
 
