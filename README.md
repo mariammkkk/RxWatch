@@ -33,7 +33,7 @@ RxWatch/
 
 1. **Data**: Three openFDA datasets (Drug Shortages, Enforcement/Recalls, NDC Directory) pulled via the openFDA REST API.
 2. **Model**: A logistic regression classifier trained on manufacturer count, recall count, therapeutic category, and dosage form, predicting whether a shortage is supply-side or demand-side driven.
-3. **Backend**: FastAPI serves the trained model, handles drug name search/matching (including brand-name lookup), and generates plain-language guidance via a constrained LLM call (grounded only in model-computed facts, no invented statistics or supplier names).
+3. **Backend**: FastAPI serves the trained model and handles drug name search/matching (including brand-name lookup).
 4. **Frontend**: A Next.js dashboard where a pharmacy can search a single drug or upload their full inventory and get back a ranked risk table.
 
 ## Running Locally
@@ -41,7 +41,7 @@ RxWatch/
 **Backend:**
 ```bash
 cd backend
-pip install fastapi uvicorn pandas scikit-learn joblib --break-system-packages
+pip install fastapi uvicorn pandas scikit-learn joblib rapidfuzz --break-system-packages
 python3 -m uvicorn main:app --reload --port 8000
 ```
 
@@ -55,7 +55,6 @@ npm run dev
 You'll need your own `.env.local` in `frontend/` with:
 ```
 BACKEND_URL=http://localhost:8000
-OPENAI_API_KEY=your_key_here
 ```
 
 Raw data files (`backend/data/*.csv`, `*.json`) are not included in this repo due to size; the pull script (`data/pull_openFDA_data.py`) can regenerate them from the openFDA API.

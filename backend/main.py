@@ -16,9 +16,12 @@ Expects these files to exist:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from collections import defaultdict
+from rapidfuzz import fuzz, process
 import pandas as pd
 import joblib
 import ast
+import re
 
 app = FastAPI()
 
@@ -67,11 +70,122 @@ def simplify_dosage(x):
 shortages["primary_category"] = shortages["therapeutic_category"].apply(get_primary_category)
 shortages["dosage_category"] = shortages["dosage_form"].apply(simplify_dosage)
 
-drug_class_lookup = (
-    shortages.dropna(subset=["generic_name"])
-    .drop_duplicates(subset="generic_name", keep="last")
-    .set_index("generic_name")[["primary_category", "dosage_category"]]
-    .to_dict("index")
+# -----------------------------------------------------------------------
+# drug_class_lookup matching
+#
+# shortages.csv's generic_name bakes the dosage form into the string
+# (e.g. "Albuterol Sulfate Inhalation Aerosol"), while ndc_directory.csv's
+# generic_name is the plain ingredient name (e.g. "albuterol sulfate").
+# Strip the dosage form off the shortages side, then match the result
+# against ndc's generic names: exact first, fuzzy for near-misses (salt
+# form, strength suffix, word order, punctuation).
+# -----------------------------------------------------------------------
+
+_DOSAGE_FORM_WORDS = (
+    "tablet capsule injection solution suspension aerosol powder suppository "
+    "cream gel ointment lotion spray kit tincture liquid patch elixir syrup "
+    "drops emulsion foam paste concentrate irrigant film inhalation nasal "
+    "ophthalmic oral topical rectal vaginal extended delayed release chewable "
+    "metered transdermal implant pellet enema douche swab sponge strip wafer "
+    "troche lozenge"
+).split()
+_DOSAGE_FORM_FALLBACK_RE = re.compile(r"\b(" + "|".join(_DOSAGE_FORM_WORDS) + r")\b", re.IGNORECASE)
+
+# Highest similarity score seen among wrong fuzzy candidates during manual
+# review (e.g. "conivaptan hydrochloride" -> "ecopipam hydrochloride" = 82.6)
+# was 82.6; 85 leaves a margin above that while still catching genuine
+# near-misses like "dextrose monohydrate 10%" -> "dextrose monohydrate" (90.9).
+FUZZY_MATCH_THRESHOLD = 85
+
+_PARENTHETICAL_RE = re.compile(r"\([^)]*\)")
+
+def _clean_match_key(name: str) -> str:
+    """Final cleanup shared by both sides of the match: '/' is just another
+    ingredient separator (e.g. "Quinapril Hydrochloride/Hydrochlorothiazide"),
+    so give it surrounding whitespace like "and"/","/";" already have."""
+    name = re.sub(r"\s*/\s*", " ", name)
+    return re.sub(r"\s+", " ", name).strip().lower()
+
+def normalize_shortage_generic_name(generic_name: str, dosage_form) -> str:
+    """Strip the trailing dosage-form phrase off a shortages.csv generic_name."""
+    name = str(generic_name).strip()
+    original = name.lower()
+
+    if pd.notna(dosage_form) and str(dosage_form).strip():
+        pattern = re.compile(r"\b" + re.escape(str(dosage_form).strip()) + r"\b", re.IGNORECASE)
+        matches = list(pattern.finditer(name))
+        if matches:
+            name = name[: matches[-1].start()]
+
+    if name.strip().lower() == original:
+        # dosage_form was missing or didn't appear verbatim in the string --
+        # fall back to cutting at the first generic dosage-related word.
+        match = _DOSAGE_FORM_FALLBACK_RE.search(name)
+        if match:
+            name = name[: match.start()]
+
+    return _clean_match_key(name.strip().strip(",;"))
+
+shortages["normalized_generic_name"] = shortages.apply(
+    lambda r: normalize_shortage_generic_name(r["generic_name"], r["dosage_form"])
+    if pd.notna(r["generic_name"]) else None,
+    axis=1,
+)
+
+_shortage_by_normalized = (
+    shortages.dropna(subset=["normalized_generic_name"])
+    .drop_duplicates(subset="normalized_generic_name", keep="last")
+    .set_index("normalized_generic_name")
+)
+
+# every distinct ndc generic_name, grouped by its match key (lowercased,
+# "/"-normalized, and with parenthetical suffixes like "(Process IV)" or
+# "(Isomer Free)" stripped) so matching is insensitive to that noise --
+# but drug_class_lookup still gets the exact-cased, unstripped keys that
+# lookup_features() (matched_generic) will query it with.
+_ndc_raw_by_lower: dict[str, list[str]] = defaultdict(list)
+for _raw in ndc["generic_name"].dropna().astype(str).unique():
+    _match_key = _clean_match_key(_PARENTHETICAL_RE.sub("", _raw))
+    _ndc_raw_by_lower[_match_key].append(_raw)
+
+drug_class_lookup: dict[str, dict] = {}
+# ndc raw generic_name -> the shortages.csv generic_name it was matched from,
+# kept only for debugging/reporting (not used in scoring).
+drug_class_match_source: dict[str, str] = {}
+
+def _apply_drug_class_match(normalized_key: str, shortage_row) -> int:
+    raws = _ndc_raw_by_lower.get(normalized_key)
+    if not raws:
+        return 0
+    info = {
+        "primary_category": shortage_row["primary_category"],
+        "dosage_category": shortage_row["dosage_category"],
+    }
+    for raw in raws:
+        drug_class_lookup[raw] = info
+        drug_class_match_source[raw] = shortage_row["generic_name"]
+    return len(raws)
+
+_unmatched_normalized = []
+for _normalized_key, _row in _shortage_by_normalized.iterrows():
+    if _apply_drug_class_match(_normalized_key, _row) == 0:
+        _unmatched_normalized.append(_normalized_key)
+
+_fuzzy_recovered = 0
+_ndc_lower_candidates = list(_ndc_raw_by_lower.keys())
+for _normalized_key in _unmatched_normalized:
+    _best = process.extractOne(
+        _normalized_key, _ndc_lower_candidates,
+        scorer=fuzz.token_sort_ratio, score_cutoff=FUZZY_MATCH_THRESHOLD,
+    )
+    if _best is not None:
+        if _apply_drug_class_match(_best[0], _shortage_by_normalized.loc[_normalized_key]) > 0:
+            _fuzzy_recovered += 1
+
+print(
+    f"[drug_class_lookup] {len(_shortage_by_normalized) - len(_unmatched_normalized)} exact + "
+    f"{_fuzzy_recovered} fuzzy matches out of {len(_shortage_by_normalized)} shortages.csv drugs "
+    f"(fuzzy threshold={FUZZY_MATCH_THRESHOLD})"
 )
 
 # recall count per generic_name

@@ -1,4 +1,5 @@
 .env
 .venv/
 node_modules/
-backend/data/
+backend/data/git combackend/data/ndc_directory.csv
+backend/data/ndc_directory_raw.json

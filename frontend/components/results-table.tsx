@@ -1,65 +1,17 @@
 "use client"
 
-import { Fragment, useCallback, useMemo, useState } from "react"
-import { ChevronDown, Factory, FlaskConical, Loader2, Pill, Sparkles } from "lucide-react"
+import { Fragment, useMemo, useState } from "react"
+import { ChevronDown, Factory, FlaskConical, Pill } from "lucide-react"
 import type { ScoredDrug } from "@/lib/rx-data"
 import { CauseTag, ShortageBadge, TierBadge, tierBarColor } from "@/components/risk-badges"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 type SortKey = "score" | "name"
-
-interface RecoState {
-  status: "idle" | "loading" | "done" | "error"
-  text?: string
-  error?: string
-}
 
 export function ResultsTable({ drugs }: { drugs: ScoredDrug[] }) {
   const [sortKey, setSortKey] = useState<SortKey>("score")
   const [asc, setAsc] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  // Cached per-drug recommendations so re-expanding a row never re-fetches.
-  const [recos, setRecos] = useState<Record<string, RecoState>>({})
-
-  const fetchRecommendation = useCallback(
-    async (drug: ScoredDrug) => {
-      // Only fetch once per drug (idle -> loading -> done/error).
-      setRecos((prev) => {
-        const existing = prev[drug.name]
-        if (existing && (existing.status === "loading" || existing.status === "done")) return prev
-        return { ...prev, [drug.name]: { status: "loading" } }
-      })
-
-      try {
-        const res = await fetch("/api/recommendation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: drug.name,
-            manufacturers: drug.manufacturers,
-            drugClass: drug.drugClass,
-            dosageForm: drug.dosageForm,
-            cause: drug.cause,
-            score: drug.score,
-            activeShortage: drug.activeShortage,
-          }),
-        })
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          throw new Error(data.error || "Request failed")
-        }
-        const data = (await res.json()) as { recommendation: string }
-        setRecos((prev) => ({ ...prev, [drug.name]: { status: "done", text: data.recommendation } }))
-      } catch (err) {
-        setRecos((prev) => ({
-          ...prev,
-          [drug.name]: { status: "error", error: err instanceof Error ? err.message : "Something went wrong." },
-        }))
-      }
-    },
-    [],
-  )
 
   const sorted = useMemo(() => {
     const arr = [...drugs]
@@ -165,11 +117,7 @@ export function ResultsTable({ drugs }: { drugs: ScoredDrug[] }) {
                   {open && (
                     <tr className="border-b border-border bg-secondary/30">
                       <td colSpan={5} className="px-4 py-5">
-                        <RowDetail
-                          drug={d}
-                          reco={recos[d.name] ?? { status: "idle" }}
-                          onGetRecommendation={() => fetchRecommendation(d)}
-                        />
+                        <RowDetail drug={d} />
                       </td>
                     </tr>
                   )}
@@ -209,15 +157,7 @@ function SortButton({
   )
 }
 
-function RowDetail({
-  drug,
-  reco,
-  onGetRecommendation,
-}: {
-  drug: ScoredDrug
-  reco: RecoState
-  onGetRecommendation: () => void
-}) {
+function RowDetail({ drug }: { drug: ScoredDrug }) {
   const maxWeight = Math.max(...drug.factors.map((f) => f.weight), 1)
   const iconFor = (label: string) => {
     if (label.startsWith("Manufacturer")) return Factory
@@ -272,63 +212,6 @@ function RowDetail({
             </div>
           </dl>
         </div>
-      </div>
-
-      <RecommendationPanel reco={reco} onGetRecommendation={onGetRecommendation} />
-    </div>
-  )
-}
-
-function RecommendationPanel({
-  reco,
-  onGetRecommendation,
-}: {
-  reco: RecoState
-  onGetRecommendation: () => void
-}) {
-  if (reco.status === "idle") {
-    return (
-      <div className="border-t border-border pt-4">
-        <Button type="button" variant="outline" size="sm" className="gap-2 bg-transparent" onClick={onGetRecommendation}>
-          <Sparkles className="size-4" aria-hidden="true" />
-          Get recommendation
-        </Button>
-      </div>
-    )
-  }
-
-  if (reco.status === "loading") {
-    return (
-      <div className="border-t border-border pt-4">
-        <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          Generating recommendation...
-        </div>
-      </div>
-    )
-  }
-
-  if (reco.status === "error") {
-    return (
-      <div className="border-t border-border pt-4">
-        <p className="mb-2 text-sm text-destructive">{reco.error}</p>
-        <Button type="button" variant="outline" size="sm" className="gap-2 bg-transparent" onClick={onGetRecommendation}>
-          <Sparkles className="size-4" aria-hidden="true" />
-          Try again
-        </Button>
-      </div>
-    )
-  }
-
-  // done
-  return (
-    <div className="border-t border-border pt-4">
-      <div className="rounded-lg border border-primary/25 bg-primary/5 p-4">
-        <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-primary">
-          <Sparkles className="size-3.5" aria-hidden="true" />
-          <span>AI-generated guidance, based on the facts above</span>
-        </div>
-        <p className="text-pretty text-sm leading-relaxed text-foreground">{reco.text}</p>
       </div>
     </div>
   )
