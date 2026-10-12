@@ -1,10 +1,21 @@
+# Coverage check: drug_class_lookup match rate before vs after the generic_name normalization fix.
 """
 Reports drug_class_lookup match coverage before/after the shortages.csv <->
 ndc_directory.csv generic_name normalization fix, plus a spot-check sample.
 
-Run with: python3 analyze_dosage_matching.py   (from backend/, with the venv active)
+Run with: python3 analyze_dosage_matching.py   (from analysis/diagnostics/, venv active)
 """
+import os
 import random
+import sys
+from pathlib import Path
+
+# main.py loads its data via paths relative to backend/, so cwd must be
+# backend/ before importing it (importing it also runs its startup logic:
+# loading the model and building drug_class_lookup).
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent / "backend"
+sys.path.insert(0, str(BACKEND_DIR))
+os.chdir(BACKEND_DIR)
 
 import main as m
 
