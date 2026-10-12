@@ -200,11 +200,16 @@ else:
 # dropped baseline categories (drop_first=True dropped these two):
 #   therapeutic baseline = "Analgesia/Addiction"  (all cat_ columns = 0)
 #   dosage baseline      = "Injectable"            (all dose_ columns = 0)
+#
+# As of the Phase 1 event-level retrain (analysis/validation.py), the
+# category set uses an EVENT-count rare-category threshold (<5 events),
+# not the original ROW-count threshold -- Anti-Infective and Oncology no
+# longer get their own column and fall through to cat_Other/Rare below.
 # ------------------------------------------------------------------------
 
 BASELINE_CATEGORY = "Analgesia/Addiction"
-NAMED_CATEGORIES = {"Anesthesia", "Anti-Infective", "Cardiovascular",
-                     "Endocrinology/Metabolism", "Oncology", "Psychiatry"}
+NAMED_CATEGORIES = {"Anesthesia", "Cardiovascular",
+                     "Endocrinology/Metabolism", "Psychiatry"}
 # "other/rare" also has its own column -> anything not baseline/named/None falls here
 
 BASELINE_DOSAGE = "Injectable"
