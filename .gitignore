@@ -1,5 +1,9 @@
-.env
+.env*
 .venv/
 node_modules/
-backend/data/git combackend/data/ndc_directory.csv
-backend/data/ndc_directory_raw.json
+__pycache__/
+*.pyc
+backend/data/*.csv
+backend/data/*.json
+AGENTS.md
+CLAUDE.md
