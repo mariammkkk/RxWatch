@@ -8,12 +8,12 @@ const steps = [
     body: "Each drug is cross-referenced with current shortage listings, recall history, and how many firms actually make it.",
   },
   {
-    title: "You get a score and a cause",
-    body: "Every drug already in shortage comes back with a severity score and a likely cause: a supply-side problem or a demand-side spike.",
+    title: "You get FDA status and the facts",
+    body: "Every drug comes back with its FDA shortage status, manufacturer count, recall history, and class and dosage form.",
   },
   {
-    title: "You know what kind of problem it is",
-    body: "Understanding the cause tells you the right move, whether that's lining up a backup supplier or stocking up while you can.",
+    title: "You know where to look closer",
+    body: "When a drug has few manufacturers or an active shortage, you'll see it immediately, so you know where backup sourcing matters most.",
   },
 ]
 

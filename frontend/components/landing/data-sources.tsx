@@ -1,7 +1,7 @@
 const sources = [
   {
     name: "openFDA Drug Shortages",
-    body: "The current and resolved shortage records themselves, so a drug that's already flagged is never treated as low risk.",
+    body: "The current and resolved shortage records themselves, so a drug that's already flagged always shows its real FDA status.",
   },
   {
     name: "NDC Directory",

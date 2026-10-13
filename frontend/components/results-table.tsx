@@ -1,34 +1,44 @@
 "use client"
 
 import { Fragment, useMemo, useState } from "react"
-import { ChevronDown, Factory, FlaskConical, Pill } from "lucide-react"
-import type { ScoredDrug } from "@/lib/rx-data"
-import { CauseTag, ShortageBadge, TierBadge, tierBarColor } from "@/components/risk-badges"
+import { ChevronDown } from "lucide-react"
+import type { DrugResult, ShortageStatus } from "@/lib/rx-data"
+import { StatusBadge, NotFoundBadge, FewManufacturersBadge, MatchTypeNote } from "@/components/risk-badges"
 import { cn } from "@/lib/utils"
 
-type SortKey = "score" | "name"
+type DisplayStatus = ShortageStatus | "not_found"
 
-export function ResultsTable({ drugs }: { drugs: ScoredDrug[] }) {
-  const [sortKey, setSortKey] = useState<SortKey>("score")
-  const [asc, setAsc] = useState(false)
+const STATUS_ORDER: DisplayStatus[] = ["current", "to_be_discontinued", "resolved", "not_listed", "not_found"]
+
+function displayStatus(d: DrugResult): DisplayStatus {
+  if (d.matchedGenericName === null && d.shortageStatus === "not_listed") return "not_found"
+  return d.shortageStatus
+}
+
+function formatDataAsOf(dataAsOf: string): string {
+  // dataAsOf may be a bare date ("2026-08-20") or a full ISO timestamp.
+  const d = new Date(dataAsOf.length <= 10 ? `${dataAsOf}T00:00:00` : dataAsOf)
+  if (Number.isNaN(d.getTime())) return dataAsOf
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+}
+
+export function ResultsTable({ drugs, dataAsOf }: { drugs: DrugResult[]; dataAsOf: string }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const sorted = useMemo(() => {
     const arr = [...drugs]
     arr.sort((a, b) => {
-      const cmp = sortKey === "score" ? a.score - b.score : a.name.localeCompare(b.name)
-      return asc ? cmp : -cmp
+      const statusCmp = STATUS_ORDER.indexOf(displayStatus(a)) - STATUS_ORDER.indexOf(displayStatus(b))
+      if (statusCmp !== 0) return statusCmp
+      const am = a.facts.manufacturerCount
+      const bm = b.facts.manufacturerCount
+      if (am === null && bm === null) return 0
+      if (am === null) return 1 // unknown last
+      if (bm === null) return -1
+      return am - bm
     })
     return arr
-  }, [drugs, sortKey, asc])
-
-  function toggleSort(key: SortKey) {
-    if (key === sortKey) setAsc((v) => !v)
-    else {
-      setSortKey(key)
-      setAsc(key === "name")
-    }
-  }
+  }, [drugs])
 
   function toggleRow(name: string) {
     setExpanded((prev) => {
@@ -40,26 +50,28 @@ export function ResultsTable({ drugs }: { drugs: ScoredDrug[] }) {
   }
 
   return (
-    <section aria-label="Risk results" className="overflow-hidden rounded-xl border border-border bg-card">
+    <section aria-label="Results" className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border bg-secondary/50 text-left">
               <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
-                <SortButton active={sortKey === "name"} asc={asc} onClick={() => toggleSort("name")}>
-                  Drug Name
-                </SortButton>
+                Drug
               </th>
               <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
-                <SortButton active={sortKey === "score"} asc={asc} onClick={() => toggleSort("score")}>
-                  Risk Score
-                </SortButton>
+                Status
               </th>
               <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
-                Predicted Cause
+                Manufacturers
               </th>
               <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
-                Active Shortage
+                Recalls
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
+                Class
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
+                Dosage form
               </th>
               <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">
                 Details
@@ -69,6 +81,7 @@ export function ResultsTable({ drugs }: { drugs: ScoredDrug[] }) {
           <tbody>
             {sorted.map((d) => {
               const open = expanded.has(d.name)
+              const status = displayStatus(d)
               return (
                 <Fragment key={d.name}>
                   <tr
@@ -80,25 +93,21 @@ export function ResultsTable({ drugs }: { drugs: ScoredDrug[] }) {
                   >
                     <td className="px-4 py-3">
                       <span className="font-medium text-foreground">{d.name}</span>
-                      <span className="block text-xs text-muted-foreground">{d.drugClass}</span>
+                      {d.fewManufacturersFlag && (
+                        <span className="ml-2 inline-block align-middle">
+                          <FewManufacturersBadge />
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <TierBadge tier={d.tier} score={d.score} />
-                        <div className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-muted sm:block">
-                          <div
-                            className={cn("h-full rounded-full", tierBarColor(d.tier))}
-                            style={{ width: `${d.score}%` }}
-                          />
-                        </div>
-                      </div>
+                      {status === "not_found" ? <NotFoundBadge /> : <StatusBadge status={d.shortageStatus} />}
                     </td>
-                    <td className="px-4 py-3">
-                      <CauseTag cause={d.cause} />
+                    <td className="px-4 py-3 text-foreground">
+                      {d.facts.manufacturerCount ?? "Unknown"}
                     </td>
-                    <td className="px-4 py-3">
-                      <ShortageBadge active={d.activeShortage} />
-                    </td>
+                    <td className="px-4 py-3 text-foreground">{d.facts.recallCount}</td>
+                    <td className="px-4 py-3 text-foreground">{d.facts.therapeuticClass ?? "Unknown"}</td>
+                    <td className="px-4 py-3 text-foreground">{d.facts.dosageForm ?? "Unknown"}</td>
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"
@@ -116,8 +125,8 @@ export function ResultsTable({ drugs }: { drugs: ScoredDrug[] }) {
                   </tr>
                   {open && (
                     <tr className="border-b border-border bg-secondary/30">
-                      <td colSpan={5} className="px-4 py-5">
-                        <RowDetail drug={d} />
+                      <td colSpan={7} className="px-4 py-5">
+                        <RowDetail drug={d} dataAsOf={dataAsOf} />
                       </td>
                     </tr>
                   )}
@@ -131,88 +140,66 @@ export function ResultsTable({ drugs }: { drugs: ScoredDrug[] }) {
   )
 }
 
-function SortButton({
-  children,
-  active,
-  asc,
-  onClick,
-}: {
-  children: React.ReactNode
-  active: boolean
-  asc: boolean
-  onClick: () => void
-}) {
+function RowDetail({ drug, dataAsOf }: { drug: DrugResult; dataAsOf: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        active && "text-foreground",
+    <div className="space-y-4">
+      <MatchTypeNote matchedGenericName={drug.matchedGenericName} matchType={drug.ndcMatchType} />
+
+      {drug.fdaStatedReasons.length > 0 && (
+        <div className="space-y-1">
+          {drug.fdaStatedReasons.map((reason) => (
+            <p key={reason} className="text-sm text-foreground">
+              FDA-reported reason: {reason}
+            </p>
+          ))}
+        </div>
       )}
-    >
-      {children}
-      <ChevronDown className={cn("size-3.5 transition-transform", active && asc && "rotate-180", !active && "opacity-30")} />
-    </button>
+
+      {drug.matchedShortageEntries.length > 1 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Listed presentations
+          </h3>
+          <ul className="space-y-1.5">
+            {drug.matchedShortageEntries.map((entry) => (
+              <li key={entry.name} className="flex items-center gap-2 text-sm text-foreground">
+                <StatusBadge status={entry.status} />
+                <span className="text-muted-foreground">{entry.name}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {drug.shortageStatus === "not_listed" && (
+        <p className="text-xs text-muted-foreground">
+          Not on the FDA shortage list as of {formatDataAsOf(dataAsOf)}. This does not mean a shortage can't occur.
+        </p>
+      )}
+
+      {drug.causeEstimate.shown && drug.causeEstimate.supplyProbability !== null && (
+        <ExperimentalEstimate probability={drug.causeEstimate.supplyProbability} />
+      )}
+    </div>
   )
 }
 
-function RowDetail({ drug }: { drug: ScoredDrug }) {
-  const maxWeight = Math.max(...drug.factors.map((f) => f.weight), 1)
-  const iconFor = (label: string) => {
-    if (label.startsWith("Manufacturer")) return Factory
-    if (label.startsWith("Dosage")) return Pill
-    return FlaskConical
-  }
+function ExperimentalEstimate({ probability }: { probability: number }) {
+  const supplySide = probability >= 0.5
+  const pct = Math.round((supplySide ? probability : 1 - probability) * 100)
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-6 md:grid-cols-[1.4fr_1fr]">
-        <div>
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Why this scored {drug.score}/100
-          </h3>
-          <ul className="space-y-2.5">
-            {drug.factors.map((f) => {
-              const Icon = iconFor(f.label)
-              return (
-                <li key={f.label} className="flex items-center gap-3">
-                  <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <span className="w-40 shrink-0 text-sm text-foreground">{f.label}</span>
-                  <span className="w-40 shrink-0 truncate text-xs text-muted-foreground">{f.value}</span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary/80"
-                      style={{ width: `${(f.weight / maxWeight) * 100}%` }}
-                      role="img"
-                      aria-label={`Contributes ${f.weight} points`}
-                    />
-                  </div>
-                  <span className="w-8 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
-                    +{f.weight}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Plain-language read
-          </h3>
-          <p className="text-pretty text-sm leading-relaxed text-foreground">{drug.explanation}</p>
-          <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <dt className="text-muted-foreground">Manufacturers</dt>
-              <dd className="font-mono text-sm font-semibold text-foreground">{drug.manufacturers}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Dosage form</dt>
-              <dd className="text-sm font-medium text-foreground">{drug.dosageForm}</dd>
-            </div>
-          </dl>
-        </div>
-      </div>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Experimental estimate (not statistically validated)
+      </p>
+      <p className="mt-2 text-sm font-medium text-foreground">
+        {supplySide ? `Leans supply-side (${pct}%)` : `Leans demand-side (${pct}%)`}
+      </p>
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        Based on a model trained on 57 past FDA shortages. Its results were not statistically significant, so treat
+        this as a rough signal only.
+      </p>
     </div>
   )
 }

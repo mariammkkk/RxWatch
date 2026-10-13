@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button"
 import { HeroPreview } from "@/components/landing/hero-preview"
 
 const atAGlance = [
-  "A severity read on the drugs you carry that are already in shortage",
-  "Whether it's a supply problem or a demand spike driving it",
-  "What that means for you: line up a backup supplier or stock up",
+  "FDA shortage status for every drug you carry: current, to be discontinued, resolved, or not listed",
+  "Manufacturer counts and recall history pulled straight from FDA records",
+  "A flag when a drug has only 1 or 2 manufacturers, so you know where backup sourcing matters most",
 ]
 
 export function LandingHero() {
@@ -31,7 +31,7 @@ export function LandingHero() {
         </div>
         <div className="flex items-center gap-5">
           <span className="hidden text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground md:block">
-            Shortage risk, on public data
+            Built on public FDA data
           </span>
           <a
             href="/writeup"
@@ -49,12 +49,11 @@ export function LandingHero() {
         <div className="min-w-0 lg:col-span-6">
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">For independent pharmacies</p>
           <h1 className="mt-4 text-balance font-serif text-4xl font-semibold leading-[1.04] tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-            See what's actually behind a shortage, not just that it exists.
+            See which drugs in your inventory are on the FDA shortage list
           </h1>
           <p className="mt-6 max-w-xl text-pretty text-lg leading-relaxed text-muted-foreground">
-            Most shortage tools run on hospital purchasing feeds a corner pharmacy will never see. RxWatch works from
-            public FDA data alone, so a two-person shop can understand why a listed shortage is happening, the same way
-            a health system would.
+            Upload your inventory to check FDA shortage status, manufacturer counts, and recall history for every
+            drug, using free public FDA data.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Button

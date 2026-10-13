@@ -13,7 +13,7 @@ export function RxHeader() {
               Rx<span className="text-primary">Watch</span>
             </h1>
             <p className="max-w-md text-pretty text-sm leading-relaxed text-muted-foreground">
-              Shortage risk intelligence for independent pharmacies, built on public FDA data
+              FDA shortage status for independent pharmacies, built on public FDA data
             </p>
           </div>
         </div>

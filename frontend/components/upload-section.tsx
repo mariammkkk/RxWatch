@@ -3,7 +3,7 @@
 import type React from "react"
 import { useRef, useState } from "react"
 import { Download, FileSpreadsheet, UploadCloud } from "lucide-react"
-import { SAMPLE_CSV, parseInventoryCsv } from "@/lib/rx-data"
+import { parseInventoryCsv } from "@/lib/rx-data"
 import { DrugSearchInput } from "@/components/drug-search-input"
 import { cn } from "@/lib/utils"
 
@@ -37,24 +37,14 @@ export function UploadSection({ onInventory, onSingle }: UploadSectionProps) {
     reader.readAsText(file)
   }
 
-  function downloadSample() {
-    const blob = new Blob([SAMPLE_CSV], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "rxwatch-sample-inventory.csv"
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
   return (
     <section aria-labelledby="upload-heading" className="space-y-4">
       <div>
         <h2 id="upload-heading" className="text-lg font-semibold text-foreground">
-          Assess your inventory
+          Check your inventory
         </h2>
         <p className="text-sm text-muted-foreground">
-          Upload a CSV of the drugs you stock. Everything is scored locally in your browser.
+          Upload a CSV of the drugs you stock to check FDA shortage status for each one.
         </p>
       </div>
 
@@ -92,17 +82,15 @@ export function UploadSection({ onInventory, onSingle }: UploadSectionProps) {
           <p className="text-base font-semibold text-foreground">Upload your inventory list</p>
           <p className="mt-1 text-sm text-muted-foreground">Drag &amp; drop a CSV here, or click to browse</p>
         </div>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            downloadSample()
-          }}
+        <a
+          href="/sample-inventory.csv"
+          download="rxwatch-sample-inventory.csv"
+          onClick={(e) => e.stopPropagation()}
           className="mt-1 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Download className="size-3.5" aria-hidden="true" />
           Download sample CSV for format reference
-        </button>
+        </a>
         <input
           ref={inputRef}
           type="file"

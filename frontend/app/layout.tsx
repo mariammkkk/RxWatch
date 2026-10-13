@@ -23,9 +23,9 @@ const plexMono = IBM_Plex_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'RxWatch: Drug Shortage Risk Intelligence',
+  title: 'RxWatch: FDA Drug Shortage Status',
   description:
-    'Shortage risk intelligence for independent pharmacies, built on public FDA data (openFDA). Upload your inventory and assess drug shortage risk.',
+    'Check FDA shortage status, manufacturer counts, and recall history for your pharmacy inventory, using free public FDA data.',
   generator: 'v0.app',
 }
 

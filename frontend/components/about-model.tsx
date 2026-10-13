@@ -15,12 +15,11 @@ export function AboutModel() {
         </div>
         <div className="flex-1">
           <h2 id="about-heading" className="text-sm font-semibold text-foreground">
-            About this model
+            About the data and methodology
           </h2>
           <p className="mt-1 text-pretty text-sm leading-relaxed text-muted-foreground">
-            RxWatch scores are generated from <strong className="font-medium text-foreground">public FDA data only</strong>{" "}
-            (openFDA Drug Shortages, the NDC Directory, and Drugs@FDA). No proprietary wholesaler feeds or paid data are
-            required. Scores are a transparent, rules-based heuristic: a screening aid, not a guarantee.
+            RxWatch reads three public openFDA datasets: Drug Shortages, the NDC Directory, and Enforcement Reports.
+            Shortage status and FDA-reported reasons come straight from FDA records, not from a model.
           </p>
           <button
             type="button"
@@ -33,26 +32,29 @@ export function AboutModel() {
           </button>
 
           {open && (
-            <div className="mt-4 grid gap-5 border-t border-border pt-4 md:grid-cols-2">
+            <div className="mt-4 space-y-4 border-t border-border pt-4">
               <div>
                 <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <Database className="size-3.5" aria-hidden="true" />
-                  How the score is built
+                  The experimental estimate
                 </h3>
-                <ul className="space-y-1.5 text-sm text-muted-foreground">
-                  <li>• Manufacturer concentration (fewer suppliers → higher risk)</li>
-                  <li>• Dosage form (sterile injectables are hardest to produce)</li>
-                  <li>• Drug-class shortage history</li>
-                  <li>• Current openFDA active-shortage listing</li>
-                  <li>• Demand-side pressure signals</li>
-                </ul>
+                <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
+                  An experimental cause estimate is shown only for drugs in an active shortage with no stated FDA
+                  reason. That model was revalidated after we found the original training data had duplicate-record
+                  leakage: each shortage event was counted many times over. After fixing it, the event-level
+                  cross-validated AUC is 0.63 (permutation test p = 0.094), and the manufacturer-count finding our
+                  earlier analysis reported was not statistically significant at the event level (p = 0.298). That's
+                  why every estimate is labeled experimental rather than presented as a prediction.
+                </p>
               </div>
               <div>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Limitations</h3>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Limitations
+                </h3>
                 <ul className="space-y-1.5 text-sm text-muted-foreground">
                   <li>• Public data lags real supply conditions by days to weeks.</li>
-                  <li>• Regional and wholesaler-specific availability is not modeled.</li>
-                  <li>• Unmatched drugs receive an estimated profile for demonstration.</li>
+                  <li>• Regional and wholesaler-specific availability is not tracked.</li>
+                  <li>• An approximate match means the matched drug name should be verified before relying on it.</li>
                   <li>• Not medical or purchasing advice. Verify before acting.</li>
                 </ul>
               </div>

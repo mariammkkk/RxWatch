@@ -1,11 +1,11 @@
 const claims = [
   {
-    head: "It explains what's driving it",
-    body: "For the drugs you carry that are already in an FDA-reported shortage, RxWatch reads the likely cause, so you understand why it's happening instead of just that it is.",
+    head: "It shows the FDA-reported reason, when there is one",
+    body: "When the FDA has published a stated reason for a shortage, RxWatch shows it directly, so you're not guessing.",
   },
   {
-    head: "It tells you what kind of problem it is",
-    body: "It separates shortages caused by supply problems from those caused by a sudden jump in demand, so you know whether to line up a backup supplier or simply stock up.",
+    head: "It flags thin supply chains",
+    body: "Drugs made by only 1 or 2 manufacturers are flagged directly, so you know where a single disruption could hit hardest.",
   },
   {
     head: "There's nothing to log into",

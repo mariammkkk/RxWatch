@@ -2,7 +2,6 @@ import { LandingHero } from "@/components/landing/landing-hero"
 import { ProblemSection } from "@/components/landing/problem-section"
 import { StatsBand } from "@/components/landing/stats-band"
 import { HowItWorks } from "@/components/landing/how-it-works"
-import { CauseMatters } from "@/components/landing/cause-matters"
 import { DataSources } from "@/components/landing/data-sources"
 import { FinalCta } from "@/components/landing/final-cta"
 import { Reveal } from "@/components/landing/reveal"
@@ -19,9 +18,6 @@ export default function LandingPage() {
       </Reveal>
       <Reveal>
         <HowItWorks />
-      </Reveal>
-      <Reveal>
-        <CauseMatters />
       </Reveal>
       <Reveal>
         <DataSources />

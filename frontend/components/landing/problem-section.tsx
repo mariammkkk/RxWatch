@@ -4,12 +4,8 @@ const problems = [
     body: "Hundreds of drugs sit on the FDA shortage list on any given day. For a small pharmacy, one gap can mean turning a patient away or spending an afternoon on the phone chasing stock.",
   },
   {
-    title: "The good prediction tools aren't built for you",
-    body: "The models that forecast shortages run on hospital purchasing data and paid feeds. An independent pharmacy has no way to plug into any of it.",
-  },
-  {
-    title: "By the time the FDA lists it, it's late",
-    body: "Official listings are reactive. When a drug finally shows up as \"in shortage,\" your wholesaler has usually been rationing it for a while already.",
+    title: "The good shortage-tracking tools aren't built for you",
+    body: "The tools that track shortages in depth run on hospital purchasing data and paid feeds. An independent pharmacy has no way to plug into any of it.",
   },
 ]
 
