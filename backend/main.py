@@ -1,16 +1,19 @@
 """
-FastAPI service that scores drugs for shortage risk
-using the trained logistic regression model, and returns JSON matching
-the frontend's ScoredDrug shape.
+FastAPI service for drug shortage lookups. Returns FDA shortage status and
+descriptive facts (manufacturer count, recall count, therapeutic class,
+dosage form) straight from the data; the trained logistic regression model
+is only consulted for an explicitly-gated, labeled experimental estimate
+(see build_drug_result and the causeEstimate gate).
 
 Run with: uvicorn main:app --reload --port 8000
 
 Expects these files to exist:
-  - rxwatch_model.pkl           (trained LogisticRegression, 11 features)
-  - rxwatch_model_columns.pkl   (list of 11 column names, in order)
-  - ndc_directory.csv           (NDC directory — manufacturer_count + brand/generic name lookup)
-  - shortages.csv               (drug class / dosage form lookup)
+  - rxwatch_model.pkl           (trained LogisticRegression, 9 features)
+  - rxwatch_model_columns.pkl   (list of 9 column names, in order)
+  - ndc_directory.csv           (NDC directory, manufacturer_count + brand/generic name lookup)
+  - shortages.csv               (drug class / dosage form / status / reason lookup)
   - recalls.csv                 (recall_count lookup)
+  - metadata.json               (pulled_at date shown to users as dataAsOf)
 """
 
 from fastapi import FastAPI
@@ -21,6 +24,7 @@ from rapidfuzz import fuzz, process
 import pandas as pd
 import joblib
 import ast
+import json
 import re
 
 app = FastAPI()
@@ -42,6 +46,9 @@ model_columns = joblib.load("data/rxwatch_model_columns.pkl")
 ndc = pd.read_csv("data/ndc_directory.csv")
 shortages = pd.read_csv("data/shortages.csv")
 recalls = pd.read_csv("data/recalls.csv")
+
+with open("data/metadata.json") as _f:
+    DATA_AS_OF = json.load(_f)["pulled_at"]
 
 manufacturer_counts = ndc.groupby("generic_name")["labeler_name"].nunique()
 
@@ -188,6 +195,9 @@ print(
     f"(fuzzy threshold={FUZZY_MATCH_THRESHOLD})"
 )
 
+# shortage status + stated reasons are resolved further down, once
+# normalize_query_name exists -- see resolve_shortage_status_and_reasons.
+
 # recall count per generic_name
 recall_col = "openfda.generic_name" if "openfda.generic_name" in recalls.columns else "generic_name"
 if recall_col in recalls.columns:
@@ -242,21 +252,379 @@ class ScoreRequest(BaseModel):
     names: list[str]
 
 # ---------------------------------------------------------------------------
-# feature lookup
+# query-name normalization
+#
+# A query like "Lincomycin Hydrochloride Injection" (the kind of name
+# shortages.csv itself uses) used to fail to match anything: the old
+# partial-match fallback checked whether an ndc generic_name CONTAINS the
+# query, which can never succeed once the query carries a dosage-form
+# suffix longer than ndc's own plain entry. Stripping salts and dosage-form
+# words off the query (and matching against a similarly-normalized index of
+# ndc's names) fixes that directly, instead of relying on luck.
 # ---------------------------------------------------------------------------
 
 def normalize_name(name: str) -> str:
     return name.strip().lower()
 
+_PARENTHETICAL_QUERY_RE = re.compile(r"\([^)]*\)")
+
+# cation words (electrolyte-forming metals) are ambiguous on their own --
+# "Naproxen Sodium" should strip to "naproxen", but "Sodium Chloride" is a
+# complete two-word drug name and must not collapse to just "chloride" (nor
+# should "Potassium Chloride" or "Calcium Chloride" collide with it on the
+# same stripped key). Handled by position + an all-salt-remainder guard in
+# _strip_salt_words() below, not by blind regex substitution.
+_CATION_WORDS = {"sodium", "potassium", "calcium", "magnesium"}
+_OTHER_SALT_WORDS = (
+    "hydrochloride sulfate acetate phosphate besylate maleate "
+    "mesylate tartrate citrate succinate bitartrate dimesylate hydrobromide hbr "
+    "bicarbonate chloride nitrate lactate gluconate fumarate "
+    "oxalate carbonate benzoate besilate edisylate napsylate pamoate stearate "
+    "valerate propionate aspartate saccharate monohydrate anhydrous dihydrate "
+    "trihydrate hemihydrate hydrate base"
+).split()
+_ALL_SALT_WORDS = _CATION_WORDS | set(_OTHER_SALT_WORDS)
+
+
+def _strip_salt_words(name: str) -> str:
+    """Strip salt/ion words, except: a cation word in the first position is
+    kept (it's load-bearing, e.g. "Sodium Chloride"), and nothing is
+    stripped at all if doing so would leave the name empty or made up
+    entirely of other salt/ion words (same "Sodium Chloride" case, from the
+    other side -- stripping "chloride" alone would leave just "sodium")."""
+    tokens = name.split()
+    if not tokens:
+        return name
+
+    removable = [
+        i for i, t in enumerate(tokens)
+        if (t in _CATION_WORDS and i != 0) or t in _OTHER_SALT_WORDS
+    ]
+    remaining = [t for i, t in enumerate(tokens) if i not in removable]
+
+    if not remaining or all(t in _ALL_SALT_WORDS for t in remaining):
+        return name  # stripping would over-collapse -- leave untouched
+
+    return " ".join(remaining)
+
+# individual dosage-form words (not phrases -- "oral solution" is matched as
+# the two separate words "oral" and "solution", combined back into a
+# category below).
+_DOSAGE_FORM_WORD_LIST = (
+    "tablet capsule injection solution suspension aerosol powder suppository "
+    "cream gel ointment lotion spray kit tincture liquid patch elixir syrup "
+    "drops emulsion foam paste concentrate irrigant film inhalation nasal "
+    "ophthalmic oral topical rectal vaginal extended delayed release chewable "
+    "metered transdermal implant pellet enema douche swab sponge strip wafer "
+    "troche lozenge for"
+).split()
+_DOSAGE_FORM_RE = re.compile(r"\b(" + "|".join(_DOSAGE_FORM_WORD_LIST) + r")\b", re.IGNORECASE)
+_PUNCTUATION_RE = re.compile(r"[^\w\s]")
+
+
+def _dosage_words_to_category(words: list[str]) -> str | None:
+    """Mirrors simplify_dosage()'s Injectable/Oral/Other split, but takes a
+    bag of individual dosage words (from query parsing) instead of one exact
+    shortages.csv dosage_form phrase."""
+    word_set = {w.lower() for w in words}
+    if not word_set:
+        return None
+    if "injection" in word_set:
+        return "Injectable"
+    if ("tablet" in word_set or "capsule" in word_set or "chewable" in word_set
+            or ("oral" in word_set and ("solution" in word_set or "suspension" in word_set))):
+        return "Oral"
+    return "Other"
+
+
+# pharmacy-style shorthand, expanded to full words BEFORE the rest of
+# normalization so the existing salt/dosage-word stripping picks them up
+# naturally (e.g. "Metformin HCl 500mg Tab" -> "...hydrochloride...tablet").
+# Longest keys first so e.g. "tabs" expands before a hypothetical shorter
+# overlapping key would.
+_ABBREVIATION_MAP = {
+    "hcl": "hydrochloride",
+    "tabs": "tablet", "tab": "tablet",
+    "caps": "capsule", "cap": "capsule",
+    "inj": "injection",
+    "soln": "solution",
+    "susp": "suspension",
+    "er": "extended release", "xr": "extended release", "xl": "extended release",
+    "sr": "extended release", "dr": "delayed release",
+    "hfa": "inhalation",
+}
+_ABBREVIATION_RE = re.compile(
+    r"\b(" + "|".join(sorted(_ABBREVIATION_MAP, key=len, reverse=True)) + r")\b", re.IGNORECASE
+)
+
+
+def _expand_abbreviations(name: str) -> str:
+    return _ABBREVIATION_RE.sub(lambda m: _ABBREVIATION_MAP[m.group(1).lower()], name)
+
+
+# strength/unit tokens: stripped from the matching KEY entirely (so
+# "Metformin HCl 500mg Tab" and "Metformin" land on the same key), but
+# their numbers are extracted separately (see extract_numbers_for_guard)
+# and compared at match time instead -- a numeric mismatch (5% vs 50%)
+# must still block a match even though neither string's key retains the
+# number anymore.
+_STRENGTH_PERCENT_RE = re.compile(r"\d+\.?\d*\s*%")
+_STRENGTH_UNIT_RE = re.compile(r"\d+\.?\d*\s*(mg|mcg|ml|g|units?|meq)\b", re.IGNORECASE)
+
+# decimal-aware: must run on the ORIGINAL string before punctuation
+# stripping would otherwise split "0.9" into separate "0" and "9" tokens.
+_DECIMAL_NUMBER_RE = re.compile(r"\d+\.\d+|\d+")
+
+
+def extract_numbers_for_guard(raw_name: str) -> frozenset[str]:
+    return frozenset(_DECIMAL_NUMBER_RE.findall(str(raw_name)))
+
+
+def _numbers_compatible(query_numbers: frozenset, candidate_numbers: frozenset) -> bool:
+    """Reject only when BOTH sides specify numbers and the candidate's are
+    not all present in the query's (e.g. dextrose 5% vs 50% -- a genuine
+    conflict). Query-only numbers ("metformin 500mg" vs "metformin") or
+    candidate-only numbers ("sodium chloride" vs "Sodium Chloride 0.9%")
+    both pass -- missing information on either side is not a conflict."""
+    if not query_numbers or not candidate_numbers:
+        return True
+    return candidate_numbers.issubset(query_numbers)
+
+
+def normalize_query_name(raw_name: str) -> tuple[str, str | None]:
+    """Lowercase, expand pharmacy abbreviations, strip parenthetical
+    qualifiers, strength/unit tokens, punctuation, dosage-form words, and
+    salt words (see _strip_salt_words for the electrolyte guard).
+
+    Returns (normalized_core_name, extracted_dosage_form_category) where the
+    second value is "Injectable"/"Oral"/"Other"/None, taken from whatever
+    dosage-form word(s) were found and stripped -- extracted rather than
+    just discarded, since it's a useful signal about the query itself.
+    Numbers are handled separately by extract_numbers_for_guard(), since
+    they're stripped from the key here but still needed for the guard.
+    """
+    name = str(raw_name).lower()
+    name = _expand_abbreviations(name)
+    name = _PARENTHETICAL_QUERY_RE.sub(" ", name)
+    name = _STRENGTH_PERCENT_RE.sub(" ", name)
+    name = _STRENGTH_UNIT_RE.sub(" ", name)
+    name = _PUNCTUATION_RE.sub(" ", name)
+
+    dosage_words_found = _DOSAGE_FORM_RE.findall(name)
+    name = _DOSAGE_FORM_RE.sub(" ", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    name = _strip_salt_words(name)
+
+    return name, _dosage_words_to_category(dosage_words_found)
+
+
+def _select_number_compatible_raw(raws: list[str], query_numbers: frozenset) -> str | None:
+    """Given several raw names sharing a normalized key, return the first
+    whose own numbers are compatible with the query's; None if every raw in
+    the group conflicts (e.g. querying "dextrose 5%" against a key whose
+    only member is "50% Dextrose")."""
+    for raw in raws:
+        if _numbers_compatible(query_numbers, extract_numbers_for_guard(raw)):
+            return raw
+    return None
+
+
+# normalized indices, built once at startup: normalized core name -> list of
+# raw ndc generic_name / brand_name strings sharing that normalized form.
+_ndc_generic_normalized_index: dict[str, list[str]] = defaultdict(list)
+for _g in ndc["generic_name"].dropna().astype(str).unique():
+    _norm_g, _ = normalize_query_name(_g)
+    if _norm_g:
+        _ndc_generic_normalized_index[_norm_g].append(_g)
+
+_ndc_brand_normalized_index: dict[str, list[str]] = defaultdict(list)
+if "brand_name" in ndc.columns:
+    for _b in ndc["brand_name"].dropna().astype(str).unique():
+        _norm_b, _ = normalize_query_name(_b)
+        if _norm_b:
+            _ndc_brand_normalized_index[_norm_b].append(_b)
+
+# Raised from 85 after review turned up a false match at 85.7 (Somatropin ->
+# Homatropine Hydrobromide, two unrelated drugs that happen to share most of
+# their letters). 90 is the lowest score among confirmed-correct matches.
+QUERY_FUZZY_THRESHOLD = 90
+
+
+# ---------------------------------------------------------------------------
+# drug-level shortage status + stated reasons
+#
+# Matches the user's query DIRECTLY against shortages.csv's own generic
+# names (normalize_query_name on both sides, same exact-then-fuzzy-with-
+# number-guard rules as the NDC match), independent of whether the NDC
+# match succeeds. The earlier version derived this from the NDC-side
+# drug_class_match_source, which meant: (1) a drug entirely absent from
+# ndc_directory.csv (e.g. "Rifapentine") could never get a status even
+# though it's one of the 237 shortages.csv drugs, (2) a bare query like
+# "albuterol" could resolve to an NDC entry ("Albuterol") different from
+# the one the shortages match had actually attached data to ("Albuterol
+# Sulfate"), losing the status entirely, and (3) the single-row-per-
+# normalized-key dedup used for category/dosage could silently pick the
+# wrong one of several shortages.csv entries sharing a normalized key
+# (e.g. "Lisdexamfetamine Dimesylate Capsule", 90 rows with stated reasons,
+# vs "...Tablet, Chewable", 18 rows with none -- both normalize to
+# "lisdexamfetamine"). Pooling ALL raw names sharing the normalized key
+# (not just one) fixes all three at once.
+# ---------------------------------------------------------------------------
+
+_shortage_rows_by_generic_name: dict[str, list[dict]] = {
+    _gname: _group[["status", "shortage_reason"]].to_dict("records")
+    for _gname, _group in shortages.groupby("generic_name")
+}
+
+# each raw shortages.csv generic_name's own dosage_category (reusing the
+# per-row column computed above), for the dosage-aware pooling tiebreak.
+_shortage_dosage_by_generic_name: dict[str, str | None] = {
+    _gname: next((v for v in _group["dosage_category"] if pd.notna(v)), None)
+    for _gname, _group in shortages.groupby("generic_name")
+}
+
+_shortage_generic_normalized_index: dict[str, list[str]] = defaultdict(list)
+for _s in shortages["generic_name"].dropna().astype(str).unique():
+    _norm_s, _ = normalize_query_name(_s)
+    if _norm_s:
+        _shortage_generic_normalized_index[_norm_s].append(_s)
+
+_shortage_normalized_keys = list(_shortage_generic_normalized_index.keys())
+
+
+def _rollup_status(rows: list[dict]) -> str:
+    statuses = {r["status"] for r in rows if pd.notna(r.get("status"))}
+    if "Current" in statuses:
+        return "current"
+    if "To Be Discontinued" in statuses:
+        return "to_be_discontinued"
+    return "resolved"
+
+
+def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[str], list[dict]]:
+    """Drug-level status rule: any Current record gives "current"; otherwise
+    any To Be Discontinued gives "to_be_discontinued"; otherwise "resolved".
+    A drug with no matching shortages.csv records at all is "not_listed".
+    fdaStatedReasons is every distinct verbatim shortage_reason across all
+    pooled records (not just one), since records can disagree.
+
+    Matching is number-guarded (same rule as the NDC side: a candidate's
+    numbers must be a subset of the query's, or either side has none) and,
+    when the query specifies a dosage form, pooling is restricted to
+    presentations whose OWN dosage form matches it -- so e.g. querying
+    "hydrocortisone sodium succinate injection" pools only the injection
+    presentation, not an unrelated suppository that happens to share the
+    same "hydrocortisone" normalized key.
+
+    Returns (status, reasons, matchedShortageEntries) where the third value
+    is [{"name": raw_generic_name, "status": that_presentation's_own_status}, ...]
+    for every raw presentation that actually contributed to the rollup.
+    """
+    normalized_query, query_extracted_dosage = normalize_query_name(raw_query_name)
+    query_numbers = extract_numbers_for_guard(raw_query_name)
+    if not normalized_query:
+        return "not_listed", [], []
+
+    candidate_group = _shortage_generic_normalized_index.get(normalized_query)
+
+    if candidate_group is None:
+        candidates = process.extract(
+            normalized_query, _shortage_normalized_keys,
+            scorer=fuzz.token_sort_ratio, score_cutoff=QUERY_FUZZY_THRESHOLD, limit=5,
+        )
+        for candidate_key, _score, _ in candidates:
+            group = _shortage_generic_normalized_index[candidate_key]
+            if any(_numbers_compatible(query_numbers, extract_numbers_for_guard(r)) for r in group):
+                candidate_group = group
+                break
+
+    if not candidate_group:
+        return "not_listed", [], []
+
+    number_filtered = [
+        r for r in dict.fromkeys(candidate_group)  # de-dupe, preserve order
+        if _numbers_compatible(query_numbers, extract_numbers_for_guard(r))
+    ]
+    if not number_filtered:
+        return "not_listed", [], []
+
+    pooled_raws = number_filtered
+    if query_extracted_dosage:
+        dosage_matched = [r for r in number_filtered
+                           if _shortage_dosage_by_generic_name.get(r) == query_extracted_dosage]
+        if dosage_matched:
+            pooled_raws = dosage_matched
+
+    all_rows = [row for raw in pooled_raws for row in _shortage_rows_by_generic_name.get(raw, [])]
+    if not all_rows:
+        return "not_listed", [], []
+
+    status = _rollup_status(all_rows)
+    reasons = sorted({r["shortage_reason"] for r in all_rows if pd.notna(r.get("shortage_reason"))})
+    matched_entries = [
+        {"name": raw, "status": _rollup_status(_shortage_rows_by_generic_name.get(raw, []))}
+        for raw in pooled_raws
+    ]
+    return status, reasons, matched_entries
+
+
+def resolve_collision_class_info(matched_generic: str, collision_raws: list[str] | None,
+                                  query_extracted_dosage: str | None) -> dict:
+    """When a normalized key's collision group (e.g. "hydrocortisone", which
+    covers 22 raw NDC variants) has raw names with CONFLICTING therapeutic
+    classes, picking one arbitrarily (the first by insertion order) is
+    misleading. Prefer the variant whose dosage form matches the query's own
+    extracted dosage form; if none matches, or the query gave no dosage
+    form, report the class as unknown (null) rather than guessing."""
+    own_info = drug_class_lookup.get(matched_generic, {})
+    if not collision_raws or len(set(collision_raws)) < 2:
+        return own_info
+
+    classes_seen = set()
+    for r in set(collision_raws):
+        info = drug_class_lookup.get(r)
+        if info and info.get("primary_category"):
+            classes_seen.add(info["primary_category"])
+
+    if len(classes_seen) < 2:
+        # no real conflict (0 or 1 distinct classes across the group), but
+        # matched_generic (picked arbitrarily, e.g. by abbreviation-driven
+        # collision-group expansion) might itself be the one raw variant
+        # the shortages match never attached data to -- fall back to
+        # whichever group member actually has it, since they all agree.
+        if own_info.get("primary_category"):
+            return own_info
+        for r in set(collision_raws):
+            info = drug_class_lookup.get(r)
+            if info and info.get("primary_category"):
+                return info
+        return own_info
+
+    if query_extracted_dosage:
+        for r in set(collision_raws):
+            info = drug_class_lookup.get(r)
+            if info and info.get("dosage_category") == query_extracted_dosage:
+                return info
+
+    ambiguous_info = dict(drug_class_lookup.get(matched_generic, {}))
+    ambiguous_info["primary_category"] = None
+    return ambiguous_info
+
+
 def lookup_features(raw_name: str) -> dict:
     name = normalize_name(raw_name)
+    normalized_query, query_extracted_dosage = normalize_query_name(raw_name)
 
     generic_names = ndc["generic_name"].dropna().astype(str)
     exact = generic_names[generic_names.str.lower() == name]
+    query_numbers = extract_numbers_for_guard(raw_name)
 
     matched_generic = None
+    match_method = None
+    collision_raws = None  # full list of raw names sharing the matched normalized key, if any
     if len(exact) > 0:
         matched_generic = exact.iloc[0]
+        match_method = "exact_raw_generic"
     else:
         if "brand_name" in ndc.columns:
             brand_names = ndc["brand_name"].dropna().astype(str)
@@ -264,11 +632,59 @@ def lookup_features(raw_name: str) -> dict:
             if len(brand_exact) > 0:
                 matched_row = ndc[ndc["brand_name"] == brand_exact.iloc[0]].iloc[0]
                 matched_generic = matched_row["generic_name"]
+                match_method = "exact_raw_brand"
+
+        # exact match on normalized names next -- never let fuzzy override
+        # an exact hit, so fuzzy is only attempted below if this, and raw
+        # exact/brand above, all find nothing. Numbers are stripped from
+        # the key itself now (see normalize_query_name), so even an exact
+        # key match can cover several differently-numbered real products
+        # (e.g. "dextrose" covers both "50% Dextrose" and a hypothetical
+        # "5% Dextrose") -- still has to pass the number guard, and gets
+        # downgraded to "approximate" if the match relied on the candidate
+        # having numbers the query never specified.
+        if matched_generic is None and normalized_query in _ndc_generic_normalized_index:
+            collision_raws = _ndc_generic_normalized_index[normalized_query]
+            picked = _select_number_compatible_raw(collision_raws, query_numbers)
+            if picked is not None:
+                matched_generic = picked
+                candidate_numbers = extract_numbers_for_guard(picked)
+                is_numeric_approx = not query_numbers and bool(candidate_numbers)
+                match_method = "exact_normalized_generic_numeric_approx" if is_numeric_approx else "exact_normalized_generic"
+        if matched_generic is None and normalized_query in _ndc_brand_normalized_index:
+            brand_group = _ndc_brand_normalized_index[normalized_query]
+            picked_brand = _select_number_compatible_raw(brand_group, query_numbers)
+            if picked_brand is not None:
+                matched_row = ndc[ndc["brand_name"] == picked_brand].iloc[0]
+                matched_generic = matched_row["generic_name"]
+                candidate_numbers = extract_numbers_for_guard(picked_brand)
+                is_numeric_approx = not query_numbers and bool(candidate_numbers)
+                match_method = "exact_normalized_brand_numeric_approx" if is_numeric_approx else "exact_normalized_brand"
+
+        if matched_generic is None and normalized_query:
+            # check several candidates, not just the top one -- a wrong
+            # candidate with a number mismatch (e.g. "50" vs "5") can
+            # outscore a correct one, so the best-scoring match isn't
+            # necessarily the first one that passes the number guard.
+            candidates = process.extract(
+                normalized_query, list(_ndc_generic_normalized_index.keys()),
+                scorer=fuzz.token_sort_ratio, score_cutoff=QUERY_FUZZY_THRESHOLD, limit=5,
+            )
+            for candidate_key, score, _ in candidates:
+                group = _ndc_generic_normalized_index[candidate_key]
+                picked = _select_number_compatible_raw(group, query_numbers)
+                if picked is None:
+                    continue
+                collision_raws = group
+                matched_generic = picked
+                match_method = f"fuzzy_normalized_generic (score={score:.1f})"
+                break
 
         if matched_generic is None:
             partial = generic_names[generic_names.str.lower().str.contains(name, na=False, regex=False)]
             if len(partial) > 0:
                 matched_generic = partial.iloc[0]
+                match_method = "partial_contains_raw"
 
     if matched_generic is None:
         return {
@@ -277,10 +693,12 @@ def lookup_features(raw_name: str) -> dict:
             "primary_category": None,
             "dosage_category": None,
             "recall_count": 0,
+            "match_method": None,
+            "query_extracted_dosage_form": query_extracted_dosage,
         }
 
     manufacturer_count = int(manufacturer_counts.get(matched_generic, 1))
-    class_info = drug_class_lookup.get(matched_generic, {})
+    class_info = resolve_collision_class_info(matched_generic, collision_raws, query_extracted_dosage)
     recall_count = int(recall_counts_by_generic.get(matched_generic, 0))
 
     return {
@@ -289,6 +707,8 @@ def lookup_features(raw_name: str) -> dict:
         "primary_category": class_info.get("primary_category"),
         "dosage_category": class_info.get("dosage_category"),
         "recall_count": recall_count,
+        "match_method": match_method,
+        "query_extracted_dosage_form": query_extracted_dosage,
     }
 
 # ---------------------------------------------------------------------------
@@ -297,6 +717,13 @@ def lookup_features(raw_name: str) -> dict:
 
 def build_feature_row(manufacturer_count: int, recall_count: int,
                        primary_category: str | None, dosage_category: str | None) -> pd.DataFrame:
+    """Refuses to build a row when category or dosage is unresolved: an
+    unresolved value must never be silently fed in as the baseline (e.g. an
+    unmatched drug being scored as if it were a known Analgesia/Addiction,
+    Injectable drug). Callers must check both are non-null first."""
+    if primary_category is None or dosage_category is None:
+        raise ValueError("build_feature_row requires a resolved primary_category and dosage_category")
+
     row = {col: 0 for col in model_columns}
     row["manufacturer_count"] = manufacturer_count
     row["recall_count"] = recall_count
@@ -312,50 +739,56 @@ def build_feature_row(manufacturer_count: int, recall_count: int,
     return pd.DataFrame([row], columns=model_columns)
 
 
-def score_one(raw_name: str) -> dict:
+_EXACT_MATCH_METHODS = {"exact_raw_generic", "exact_raw_brand", "exact_normalized_generic", "exact_normalized_brand"}
+
+
+def classify_match_type(match_method: str | None) -> str | None:
+    if match_method is None:
+        return None
+    if match_method in _EXACT_MATCH_METHODS:
+        return "exact"
+    return "approximate"  # fuzzy_normalized_generic (...) or partial_contains_raw
+
+
+def build_drug_result(raw_name: str) -> dict:
     features = lookup_features(raw_name)
-    manufacturer_count = features["manufacturer_count"] if features["manufacturer_count"] is not None else 5
+    matched_generic_name = features["matched_generic_name"]
+    manufacturer_count = features["manufacturer_count"]
     recall_count = features["recall_count"]
     primary_category = features["primary_category"]
     dosage_category = features["dosage_category"]
 
-    X = build_feature_row(manufacturer_count, recall_count, primary_category, dosage_category)
-    supply_prob = float(model.predict_proba(X)[0][1])
+    shortage_status, fda_stated_reasons, matched_shortage_entries = resolve_shortage_status_and_reasons(raw_name)
 
-    score = round(supply_prob * 100)
-    tier = "Critical" if score >= 75 else "High" if score >= 55 else "Medium" if score >= 30 else "Low"
-    cause = "Supply-side" if supply_prob >= 0.55 else "Demand-side" if supply_prob <= 0.45 else "Unclear"
-
-    dosage_form_display = dosage_category if dosage_category else "Oral"
-
-    factors = [
-        {"label": "Manufacturer count", "value": f"{manufacturer_count} active",
-         "weight": round(abs(model.coef_[0][0]) * manufacturer_count)},
-        {"label": "Drug class", "value": primary_category or "Unknown", "weight": 10},
-        {"label": "Dosage form", "value": dosage_category or "Unknown", "weight": 10},
-    ]
-
-    explanation = (
-        f"Predicted {cause.lower()} risk (model confidence: {score}%). "
-        f"Based on {manufacturer_count} manufacturer(s), "
-        f"drug class '{primary_category or 'unmatched'}', "
-        f"and dosage form '{dosage_category or 'unmatched'}'."
+    cause_shown = (
+        shortage_status == "current"
+        and not fda_stated_reasons
+        and primary_category is not None
+        and dosage_category is not None
     )
+    supply_probability = None
+    if cause_shown:
+        X = build_feature_row(manufacturer_count, recall_count, primary_category, dosage_category)
+        supply_probability = float(model.predict_proba(X)[0][1])
 
     return {
         "name": raw_name,
-        "manufacturers": manufacturer_count,
-        "drugClass": primary_category or "Unknown",
-        "dosageForm": dosage_form_display,
-        "classProneToShortage": primary_category in {"Anesthesia", "Cardiovascular"},
-        "activeShortage": features["matched_generic_name"] is not None and
-                           features["matched_generic_name"] in shortages["generic_name"].values,
-        "demandSpike": cause == "Demand-side",
-        "score": score,
-        "tier": tier,
-        "cause": cause,
-        "explanation": explanation,
-        "factors": factors,
+        "matchedGenericName": matched_generic_name,
+        "matchType": classify_match_type(features["match_method"]),
+        "shortageStatus": shortage_status,
+        "fdaStatedReasons": fda_stated_reasons,
+        "matchedShortageEntries": matched_shortage_entries,
+        "facts": {
+            "manufacturerCount": manufacturer_count,
+            "recallCount": recall_count,
+            "therapeuticClass": primary_category,
+            "dosageForm": dosage_category,
+        },
+        "fewManufacturersFlag": manufacturer_count is not None and manufacturer_count in (1, 2),
+        "causeEstimate": {
+            "shown": cause_shown,
+            "supplyProbability": supply_probability,
+        },
     }
 
 # ---------------------------------------------------------------------------
@@ -364,7 +797,7 @@ def score_one(raw_name: str) -> dict:
 
 @app.post("/api/score-batch")
 def score_batch(req: ScoreRequest):
-    return {"results": [score_one(name) for name in req.names]}
+    return {"dataAsOf": DATA_AS_OF, "results": [build_drug_result(name) for name in req.names]}
 
 
 @app.get("/api/health")
@@ -408,4 +841,4 @@ def drug_search(q: str, limit: int = 8):
 
 @app.get("/api/drug-features")
 def drug_features(name: str):
-    return score_one(name)
+    return {"dataAsOf": DATA_AS_OF, **build_drug_result(name)}
