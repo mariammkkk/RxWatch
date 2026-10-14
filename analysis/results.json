@@ -746,5 +746,110 @@
       "permutation_p_value": 0.0939060939060939,
       "n_permuted_aucs_gte_observed": 93
     }
+  },
+  "diagnostic_grouped_by_ingredient": {
+    "description": "PRE-DECLARED diagnostic (does not replace primary): PRIMARY event-level pipeline (60 events, complete-NDC-file manufacturer_count, <5-event category threshold) rerun with StratifiedGroupKFold grouped by normalized active ingredient instead of by event_id, so events sharing an ingredient (e.g. the two rifampin events) always land in the same fold.",
+    "n_events": 60,
+    "n_distinct_ingredient_groups": 46,
+    "ingredients_with_2_or_more_events": [
+      {
+        "ingredient": "lidocaine",
+        "n_events": 4,
+        "event_ids": [
+          "Lidocaine Hydrochloride Injection | 02/20/2018",
+          "Lidocaine Hydrochloride Injection | 02/22/2012",
+          "Lidocaine Hydrochloride Injection | 06/13/2018",
+          "Lidocaine Hydrochloride Injection | 07/14/2018"
+        ]
+      },
+      {
+        "ingredient": "ketorolac tromethamine",
+        "n_events": 3,
+        "event_ids": [
+          "Ketorolac Tromethamine Injection | 03/23/2018",
+          "Ketorolac Tromethamine Injection | 03/26/2018",
+          "Ketorolac Tromethamine Injection | 06/06/2018"
+        ]
+      },
+      {
+        "ingredient": "lisdexamfetamine",
+        "n_events": 3,
+        "event_ids": [
+          "Lisdexamfetamine Dimesylate Capsule | 01/11/2024",
+          "Lisdexamfetamine Dimesylate Capsule | 07/14/2023",
+          "Lisdexamfetamine Dimesylate Capsule | 11/01/2023"
+        ]
+      },
+      {
+        "ingredient": "atropine",
+        "n_events": 2,
+        "event_ids": [
+          "Atropine Sulfate Injection | 01/01/2012",
+          "Atropine Sulfate Injection | 01/01/2020"
+        ]
+      },
+      {
+        "ingredient": "azacitidine",
+        "n_events": 2,
+        "event_ids": [
+          "Azacitidine Injection | 12/18/2020",
+          "Azacitidine Injection | 12/22/2020"
+        ]
+      },
+      {
+        "ingredient": "furosemide",
+        "n_events": 2,
+        "event_ids": [
+          "Furosemide Injection | 04/07/2020",
+          "Furosemide Oral Solution | 03/31/2026"
+        ]
+      },
+      {
+        "ingredient": "lorazepam",
+        "n_events": 2,
+        "event_ids": [
+          "Lorazepam Injection | 05/03/2018",
+          "Lorazepam Injection | 09/05/2018"
+        ]
+      },
+      {
+        "ingredient": "rifampin",
+        "n_events": 2,
+        "event_ids": [
+          "Rifampin Capsule | 12/22/2021",
+          "Rifampin Injection | 02/17/2021"
+        ]
+      },
+      {
+        "ingredient": "",
+        "n_events": 2,
+        "event_ids": [
+          "Sodium Acetate Injection | 02/03/2016",
+          "Sodium Bicarbonate Injection | 03/01/2017"
+        ]
+      },
+      {
+        "ingredient": "sterile water",
+        "n_events": 2,
+        "event_ids": [
+          "Sterile Water Injection | 11/23/2021",
+          "Sterile Water Irrigant | 04/28/2023"
+        ]
+      }
+    ],
+    "auc_mean": 0.6075555555555556,
+    "auc_std": 0.20751011899060995,
+    "auc_min": 0.16666666666666669,
+    "auc_max": 1.0,
+    "n_folds_total": 50,
+    "n_degenerate_folds_skipped": 0,
+    "permutation_test": {
+      "n_permutations": 1000,
+      "observed_auc": 0.6075555555555556,
+      "null_mean": 0.4980630445578232,
+      "null_std": 0.09524746087221486,
+      "permutation_p_value": 0.12987012987012986
+    },
+    "flagged_auc_below_065_or_p_above_005": true
   }
 }

@@ -191,14 +191,14 @@ function ExperimentalEstimate({ probability }: { probability: number }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Experimental estimate (not statistically validated)
+        Experimental estimate (small sample)
       </p>
       <p className="mt-2 text-sm font-medium text-foreground">
         {supplySide ? `Leans supply-side (${pct}%)` : `Leans demand-side (${pct}%)`}
       </p>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        Based on a model trained on 57 past FDA shortages. Its results were not statistically significant, so treat
-        this as a rough signal only.
+        Based on a model trained on 60 past FDA shortages. It performs better than chance, but the sample is small,
+        so treat this as a rough signal only.
       </p>
     </div>
   )

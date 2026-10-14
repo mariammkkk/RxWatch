@@ -40,11 +40,14 @@ export function AboutModel() {
                 </h3>
                 <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
                   An experimental cause estimate is shown only for drugs in an active shortage with no stated FDA
-                  reason. That model was revalidated after we found the original training data had duplicate-record
-                  leakage: each shortage event was counted many times over. After fixing it, the event-level
-                  cross-validated AUC is 0.63 (permutation test p = 0.094), and the manufacturer-count finding our
-                  earlier analysis reported was not statistically significant at the event level (p = 0.298). That's
-                  why every estimate is labeled experimental rather than presented as a prediction.
+                  reason. The model was revalidated after we found two problems in the original training data:
+                  duplicate records (each shortage event was counted many times over) and an incomplete NDC
+                  Directory pull, which we fixed by downloading the complete file. After fixing both, the
+                  event-level cross-validated AUC is 0.71 on 60 past shortage events (permutation test p = 0.009).
+                  The manufacturer-count finding our earlier analysis reported is still not statistically
+                  significant at the event level (p = 0.307). Every estimate is labeled experimental because the
+                  model is trained on only 60 events. Most of the gain over our earlier analysis came from three
+                  additional events, so this result is sensitive to small changes in the data.
                 </p>
               </div>
               <div>
