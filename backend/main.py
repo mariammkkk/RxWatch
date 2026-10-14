@@ -213,12 +213,13 @@ else:
 #
 # As of the Phase 1 event-level retrain (analysis/validation.py), the
 # category set uses an EVENT-count rare-category threshold (<5 events),
-# not the original ROW-count threshold -- Anti-Infective and Oncology no
-# longer get their own column and fall through to cat_Other/Rare below.
+# not the original ROW-count threshold -- Oncology still falls through to
+# cat_Other/Rare below. Anti-Infective crossed the threshold (57 -> 60
+# events, from the complete-NDC-file retrain) and got its own column.
 # ------------------------------------------------------------------------
 
 BASELINE_CATEGORY = "Analgesia/Addiction"
-NAMED_CATEGORIES = {"Anesthesia", "Cardiovascular",
+NAMED_CATEGORIES = {"Anesthesia", "Anti-Infective", "Cardiovascular",
                      "Endocrinology/Metabolism", "Psychiatry"}
 # "other/rare" also has its own column -> anything not baseline/named/None falls here
 

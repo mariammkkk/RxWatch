@@ -214,11 +214,14 @@ def test_numbers_compatible_when_candidate_subset_of_query():
 
 
 def test_candidate_only_numbers_downgrades_match_type_to_approximate():
-    # "teriparatide" (no numbers) exact-key-matches the NDC entry
-    # "Teriparatide Acetate (hPTH (1-34))", which carries numbers the query
-    # never specified -- candidate-only numbers, so matchType downgrades to
+    # "teriparatide" used to exercise this on the incomplete NDC file (exact-
+    # key-matched a numbered candidate); the complete re-pulled file now has
+    # a literal "teriparatide" entry, so it exact-raw-matches directly
+    # instead. "Octinoxate Zinc Oxide" (no numbers) exact-key-matches
+    # "Octinoxate 6% Zinc Oxide 3%", which carries numbers the query never
+    # specified -- candidate-only numbers, so matchType downgrades to
     # approximate even though the key matched exactly.
-    f = lookup_features("teriparatide")
+    f = lookup_features("Octinoxate Zinc Oxide")
     assert f["matched_generic_name"] is not None
     assert f["match_method"] == "exact_normalized_generic_numeric_approx"
 

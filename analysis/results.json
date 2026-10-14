@@ -4,16 +4,16 @@
     "auc_mean": 0.8109368139868286,
     "auc_std": 0.08920011349035244,
     "auc_source_note": "Verified by reproducing analysis.ipynb's final (drop_first=True) cell exactly; the master prompt's cited 'std 0.097' belongs to a SUPERSEDED earlier notebook cell (pre-drop_first-fix) and does not match what was actually fit and saved to rxwatch_model.pkl. Using the verified number here per the no-invented-numbers rule.",
-    "mannwhitney_U": 61198.0,
-    "mannwhitney_p": 3.6760709614339684e-10,
-    "n_rows": 830,
-    "n_events": 57
+    "mannwhitney_U": 65866.5,
+    "mannwhitney_p": 3.2898486801647346e-11,
+    "n_rows": 873,
+    "n_events": 60
   },
   "event_definition": {
     "key": "generic_name + initial_posting_date",
-    "n_events_in_model_data": 57,
+    "n_events_in_model_data": 60,
     "merge_check_normalized_ingredient": {
-      "n_events_under_ingredient_key": 57,
+      "n_events_under_ingredient_key": 60,
       "n_events_that_would_merge": 0,
       "approved_without_change": true
     },
@@ -23,12 +23,12 @@
       "max": 175
     },
     "largest_event": "Lisdexamfetamine Dimesylate Capsule | 07/14/2023",
-    "largest_event_share_of_rows": 0.21084337349397592
+    "largest_event_share_of_rows": 0.2004581901489118
   },
   "mixed_label_resolution": {
     "method": "majority vote by distinct company_name count within event (company_name has 0 nulls)",
-    "n_mixed_events_rowlevel": 14,
-    "n_exact_ties": 4,
+    "n_mixed_events_rowlevel": 16,
+    "n_exact_ties": 6,
     "ties": [
       {
         "event_id": "Bupivacaine Hydrochloride Injection | 02/20/2018",
@@ -52,6 +52,20 @@
         "tiebreak_label": 0
       },
       {
+        "event_id": "Rifampin Injection | 02/17/2021",
+        "companies_supply": 1,
+        "companies_demand": 1,
+        "tiebreak_used": "row_count",
+        "tiebreak_label": 1
+      },
+      {
+        "event_id": "Rocuronium Bromide Injection | 02/15/2023",
+        "companies_supply": 1,
+        "companies_demand": 1,
+        "tiebreak_used": "row_count",
+        "tiebreak_label": 0
+      },
+      {
         "event_id": "Sodium Bicarbonate Injection | 03/01/2017",
         "companies_supply": 1,
         "companies_demand": 1,
@@ -63,7 +77,6 @@
   "category_threshold": {
     "primary_threshold_events": 5,
     "primary_merged_categories": [
-      "Anti-Infective",
       "Antiviral",
       "Dermatology",
       "Gastroenterology",
@@ -81,222 +94,657 @@
       "Gastroenterology",
       "Hematology",
       "Medical Imaging",
-      "Neurology",
       "Other"
     ],
     "note": "Category dummy columns differ from the original row-level model's: threshold is based on EVENT counts, not row counts, so the kept categories (Anesthesia, Analgesia/Addiction, Cardiovascular, Psychiatry, Endocrinology/Metabolism) and the resulting cat_* columns in X are not the same set as rxwatch_model_columns.pkl."
   },
   "event_level_class_balance": {
-    "supply_side_events": 27,
-    "demand_side_events": 30,
-    "total_events": 57
+    "supply_side_events": 29,
+    "demand_side_events": 31,
+    "total_events": 60
   },
   "primary": {
     "description": "Event-level model: one row per event (median-aggregated manufacturer_count/recall_count, constant primary_category/dosage_category), <5-event category threshold, 5-fold StratifiedKFold x 10 seeds.",
-    "auc_mean": 0.6270555555555556,
-    "auc_std": 0.14549703021872692,
-    "auc_min": 0.1388888888888889,
-    "auc_max": 0.9,
+    "auc_mean": 0.7127619047619049,
+    "auc_std": 0.13158520399653137,
+    "auc_min": 0.36111111111111105,
+    "auc_max": 1.0,
     "n_folds_total": 50,
     "n_degenerate_folds_skipped": 0,
     "per_fold_aucs": [
-      0.5972222222222223,
-      0.6666666666666666,
-      0.6666666666666667,
-      0.6333333333333333,
-      0.7333333333333334,
-      0.6111111111111112,
-      0.6944444444444445,
-      0.6000000000000001,
-      0.6666666666666667,
-      0.5333333333333333,
-      0.5277777777777777,
-      0.888888888888889,
-      0.6000000000000001,
-      0.6333333333333333,
-      0.7,
-      0.75,
-      0.5555555555555556,
-      0.4666666666666667,
-      0.9,
-      0.6,
-      0.3055555555555555,
-      0.5833333333333335,
-      0.8,
-      0.7333333333333334,
-      0.6333333333333333,
-      0.6944444444444444,
-      0.1388888888888889,
-      0.6666666666666666,
-      0.8,
-      0.6333333333333333,
-      0.6666666666666667,
-      0.4722222222222222,
-      0.4166666666666667,
-      0.3,
-      0.7333333333333334,
-      0.5555555555555556,
-      0.8333333333333335,
-      0.5333333333333334,
-      0.8333333333333334,
-      0.5,
-      0.638888888888889,
-      0.888888888888889,
-      0.65,
-      0.5666666666666667,
-      0.6000000000000001,
-      0.6944444444444444,
+      0.8333333333333333,
+      0.7777777777777778,
       0.7222222222222222,
-      0.5333333333333334,
-      0.6,
-      0.6000000000000001
+      0.5555555555555556,
+      0.7428571428571429,
+      0.36111111111111105,
+      0.7777777777777778,
+      0.7777777777777778,
+      0.6111111111111112,
+      0.8571428571428572,
+      0.5833333333333334,
+      0.75,
+      0.75,
+      0.7222222222222223,
+      0.6285714285714287,
+      0.8055555555555556,
+      0.7777777777777778,
+      0.5833333333333333,
+      0.75,
+      0.7999999999999999,
+      0.8611111111111112,
+      0.6388888888888888,
+      0.6388888888888888,
+      0.8472222222222223,
+      0.7428571428571429,
+      0.8611111111111112,
+      0.8611111111111112,
+      0.7777777777777778,
+      0.6666666666666667,
+      0.6714285714285715,
+      0.6111111111111112,
+      0.6666666666666667,
+      0.6944444444444444,
+      0.6944444444444444,
+      1.0,
+      0.6111111111111112,
+      0.5,
+      0.6666666666666667,
+      0.7777777777777778,
+      0.6285714285714286,
+      0.7777777777777778,
+      0.9722222222222223,
+      0.3611111111111111,
+      0.8055555555555557,
+      0.5142857142857142,
+      0.763888888888889,
+      0.6388888888888888,
+      0.5277777777777778,
+      0.8055555555555556,
+      0.8857142857142857
     ],
     "mannwhitney": {
       "label": "event_level_primary (all 57 events)",
-      "U": 339.5,
-      "p_value": 0.29809623219198667,
-      "n_supply": 27,
-      "n_demand": 30,
+      "U": 380.0,
+      "p_value": 0.30679454019564323,
+      "n_supply": 29,
+      "n_demand": 31,
       "median_supply": 9.0,
-      "median_demand": 15.0,
+      "median_demand": 14.0,
       "iqr_supply": [
         5.0,
-        25.75
+        25.0
       ],
       "iqr_demand": [
         5.0,
-        33.5
+        31.5
       ],
-      "rank_biserial_correlation": -0.16172839506172842
+      "rank_biserial_correlation": -0.1546162402669633
     }
   },
   "secondary_row_level_grouped_cv": {
     "description": "Row-level pipeline, StratifiedGroupKFold (grouped by event_id) so no event's rows split across train/test, 5 folds x 10 seeds.",
     "unweighted": {
-      "auc_mean": 0.734971004089232,
-      "auc_std": 0.16301570949416241,
-      "auc_min": 0.43915343915343913,
-      "auc_max": 0.9974066870426971,
+      "auc_mean": 0.7530916787748089,
+      "auc_std": 0.13716059468658076,
+      "auc_min": 0.5064777327935223,
+      "auc_max": 0.9913984215660193,
       "per_fold_aucs": [
-        0.856375227686703,
-        0.7036138733931603,
-        0.8324287652645861,
-        0.4574314574314574,
-        0.772716816195077,
-        0.9873148148148148,
-        0.6962899050905954,
-        0.7285484242005981,
-        0.5065716195143685,
-        0.7645107794361525,
-        0.9924791591156216,
-        0.7013721714010592,
-        0.7123321123321124,
-        0.46895424836601307,
-        0.8077260755048288,
-        0.9951975353388909,
-        0.6977611940298507,
-        0.6962148962148962,
-        0.45845004668534084,
-        0.8494293239683934,
-        0.8689630034627301,
-        0.7132664437012263,
-        0.7737047898338221,
-        0.5063319764812302,
-        0.7938988095238095,
-        0.8656290292871615,
-        0.6964138741916519,
-        0.8154936461388074,
-        0.4855269109000452,
-        0.7874540441176471,
-        0.9974066870426971,
-        0.6909392789373814,
-        0.6848401196227283,
-        0.43915343915343913,
-        0.8729081863410222,
-        0.9951838473650088,
-        0.57554379776602,
-        0.7840802987861811,
-        0.507243195785777,
-        0.7926739926739927,
-        0.9919354838709676,
-        0.70217519106408,
-        0.7727779015370907,
-        0.44757094757094756,
-        0.7566137566137567,
-        0.9953951003868116,
-        0.6955946076071258,
-        0.7949956101843721,
-        0.4570494864612512,
-        0.8020683020683022
+        0.8435754189944134,
+        0.6972744970798183,
+        0.8157575757575757,
+        0.5759109311740891,
+        0.802827965435978,
+        0.987791837462128,
+        0.7052154195011338,
+        0.9154228855721392,
+        0.5264705882352942,
+        0.7627053140096619,
+        0.8290123456790123,
+        0.7077216851652942,
+        0.9232627276105536,
+        0.5064777327935223,
+        0.7605872388481084,
+        0.9913984215660193,
+        0.6954861111111111,
+        0.9121457489878543,
+        0.5254901960784314,
+        0.7385800770500827,
+        0.8410924891371819,
+        0.7149906015037594,
+        0.835959595959596,
+        0.583768656716418,
+        0.7882552230378317,
+        0.8353234717519158,
+        0.5502068014705882,
+        0.8622813990461049,
+        0.5594553126198696,
+        0.7583235409322365,
+        0.9906890130353816,
+        0.7026654411764706,
+        0.8972227470243718,
+        0.5197979797979797,
+        0.7068599033816425,
+        0.8557312252964427,
+        0.7155539772727273,
+        0.8260512820512821,
+        0.5784615384615385,
+        0.7824228911185434,
+        0.692213687150838,
+        0.7080316742081447,
+        0.9216161616161616,
+        0.5202020202020202,
+        0.7721518987341771,
+        0.9880070546737213,
+        0.6905844155844155,
+        0.8602693602693603,
+        0.5751515151515152,
+        0.7981283422459894
       ]
     },
     "weighted_inverse_rows_per_event": {
-      "auc_mean": 0.6809601801542685,
-      "auc_std": 0.19026317118623634,
-      "auc_min": 0.2835736060571687,
-      "auc_max": 0.9738310929281122
+      "auc_mean": 0.6846895836469743,
+      "auc_std": 0.14898151664951734,
+      "auc_min": 0.3214282874854019,
+      "auc_max": 0.9301942277197635
     },
     "n_degenerate_folds_skipped": 0,
     "per_seed_means": [
-      0.7245132279941968,
-      0.7366471086113059,
-      0.736572753343927,
-      0.7394105992474744,
-      0.7312330046005636,
-      0.7301035009270627,
-      0.7370495422194537,
-      0.7309450264753959,
-      0.7342146561313686,
-      0.7490206213415725
+      0.7470692776883749,
+      0.7795212089560715,
+      0.7454123460192982,
+      0.7726201109586996,
+      0.7528133132709575,
+      0.7131181051641431,
+      0.7634470168831692,
+      0.7516441828401067,
+      0.7228430883822684,
+      0.7824281375850004
     ],
-    "std_across_seed_means": 0.006249862910131302
+    "std_across_seed_means": 0.021582443277388858
   },
   "sensitivity_checks": {
     "category_threshold_lt3": {
-      "auc_mean": 0.6079444444444444,
-      "auc_std": 0.14414285823531778,
-      "auc_min": 0.1388888888888889,
-      "auc_max": 0.9000000000000001
+      "auc_mean": 0.7030952380952381,
+      "auc_std": 0.14191909838449715,
+      "auc_min": 0.16666666666666666,
+      "auc_max": 0.9444444444444445
     },
     "excluding_largest_event": {
       "largest_event_id": "Lisdexamfetamine Dimesylate Capsule | 07/14/2023",
-      "auc_mean_with": 0.6270555555555556,
-      "auc_mean_without": 0.6155,
-      "dose_oral_coef_with": 0.9879979217001337,
-      "dose_oral_coef_without": 0.9160208903594547
+      "auc_mean_with": 0.7127619047619049,
+      "auc_mean_without": 0.659420634920635,
+      "dose_oral_coef_with": 1.1364931136139171,
+      "dose_oral_coef_without": 1.0753746812613063
     },
     "drop_all_mixed_events": {
-      "n_events_remaining": 43,
-      "auc_mean": 0.6977500000000001,
-      "auc_std": 0.20395603080075864,
+      "n_events_remaining": 44,
+      "auc_mean": 0.7354999999999999,
+      "auc_std": 0.18601680031653056,
       "mannwhitney": {
         "label": "event_level_sensitivity_drop_mixed",
-        "U": 136.0,
-        "p_value": 0.022555725469964618,
-        "n_supply": 20,
+        "U": 139.0,
+        "p_value": 0.016410920327982872,
+        "n_supply": 21,
         "n_demand": 23,
         "median_supply": 9.0,
         "median_demand": 21.0,
         "iqr_supply": [
-          2.5,
-          17.5
+          3.0,
+          15.0
         ],
         "iqr_demand": [
           10.5,
-          38.5
+          39.0
         ],
-        "rank_biserial_correlation": -0.408695652173913
+        "rank_biserial_correlation": -0.4244306418219461
       }
     }
   },
   "permutation_test": {
     "description": "1000 label permutations of the PRIMARY event-level model, full 5-fold x 10-seed StratifiedKFold rerun per permutation (same methodology as the primary result).",
     "n_permutations": 1000,
-    "observed_auc": 0.6270555555555556,
-    "null_mean": 0.4980366666666666,
-    "null_std": 0.09595325203091683,
-    "null_95th_percentile": 0.6500861111111111,
-    "permutation_p_value": 0.0939060939060939,
-    "n_permuted_aucs_gte_observed": 93
+    "observed_auc": 0.7127619047619049,
+    "null_mean": 0.5012121587301588,
+    "null_std": 0.09489663140591703,
+    "null_95th_percentile": 0.6514960317460318,
+    "permutation_p_value": 0.008991008991008992,
+    "n_permuted_aucs_gte_observed": 8
+  },
+  "ndc_completeness_comparison": {
+    "description": "2026-08-20 incomplete NDC file vs the re-pulled complete file (bulk download), on the same shortages_exploded rows. Does not change the primary definition -- manufacturer_count is still a single-exact-string lookup, just computed on complete data.",
+    "ndc_join_match_rate_old": 0.9024927929455655,
+    "ndc_join_match_rate_new": 0.9253857893844327,
+    "model_data_rows_old": 830,
+    "model_data_rows_new": 873,
+    "model_data_events_old": 57,
+    "model_data_events_new": 60,
+    "rows_common_to_both_with_changed_manufacturer_count": 150,
+    "rows_common_to_both_total": 830,
+    "events_common_to_both_with_changed_manufacturer_count": 15,
+    "events_common_to_both_total": 57,
+    "new_events_added": [
+      "Rifampin Capsule | 12/22/2021",
+      "Rifampin Injection | 02/17/2021",
+      "Riluzole Oral Suspension | 01/26/2024"
+    ],
+    "top_10_manufacturer_count_changes": [
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 06/13/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 02/20/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 02/20/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 06/13/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 06/13/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 06/13/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 06/13/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 06/13/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Lidocaine Hydrochloride Injection",
+        "event_id": "Lidocaine Hydrochloride Injection | 06/13/2018",
+        "manufacturer_count_old": 90.0,
+        "manufacturer_count_new": 93.0,
+        "diff": 3.0
+      },
+      {
+        "generic_name": "Propranolol Hydrochloride Injection",
+        "event_id": "Propranolol Hydrochloride Injection | 10/31/2023",
+        "manufacturer_count_old": 33.0,
+        "manufacturer_count_new": 36.0,
+        "diff": 3.0
+      }
+    ]
+  },
+  "sensitivity_finished_products_only": {
+    "description": "PRE-DECLARED sensitivity (decided before any results were seen): same event definition, labels, category threshold, and 5-fold x10-seed StratifiedKFold CV as PRIMARY, but manufacturer_count excludes BULK INGREDIENT and other non-finished product_type rows from the labeler count. Does NOT replace primary.",
+    "excluded_product_types": [
+      "ANIMAL DRUG FOR FURTHER PROCESSING",
+      "BULK INGREDIENT",
+      "DRUG FOR FURTHER PROCESSING",
+      "LICENSED VACCINE BULK INTERMEDIATE"
+    ],
+    "n_rows": 867,
+    "n_events": 60,
+    "auc_mean": 0.6990952380952382,
+    "auc_std": 0.13416210773323267,
+    "auc_min": 0.3611111111111111,
+    "auc_max": 1.0,
+    "n_folds_total": 50,
+    "n_degenerate_folds_skipped": 0,
+    "mannwhitney": {
+      "label": "event_level_sensitivity_finished_products_only",
+      "U": 373.5,
+      "p_value": 0.26278373446431447,
+      "n_supply": 29,
+      "n_demand": 31,
+      "median_supply": 7.0,
+      "median_demand": 10.0,
+      "iqr_supply": [
+        3.0,
+        19.0
+      ],
+      "iqr_demand": [
+        4.0,
+        26.5
+      ],
+      "rank_biserial_correlation": -0.16907675194660732
+    },
+    "permutation_test": {
+      "n_permutations": 1000,
+      "observed_auc": 0.6990952380952382,
+      "null_mean": 0.5012245158730159,
+      "null_std": 0.09490803376418172,
+      "null_95th_percentile": 0.6485777777777776,
+      "permutation_p_value": 0.012987012987012988,
+      "n_permuted_aucs_gte_observed": 12
+    }
+  },
+  "ndc_2026_08_20_incomplete": {
+    "row_level_leaky": {
+      "description": "Original row-level pipeline (830 rows = 57 events exploded by NDC package). Kept for comparison only; known to leak near-duplicate rows across folds.",
+      "auc_mean": 0.8109368139868286,
+      "auc_std": 0.08920011349035244,
+      "auc_source_note": "Verified by reproducing analysis.ipynb's final (drop_first=True) cell exactly; the master prompt's cited 'std 0.097' belongs to a SUPERSEDED earlier notebook cell (pre-drop_first-fix) and does not match what was actually fit and saved to rxwatch_model.pkl. Using the verified number here per the no-invented-numbers rule.",
+      "mannwhitney_U": 61198.0,
+      "mannwhitney_p": 3.6760709614339684e-10,
+      "n_rows": 830,
+      "n_events": 57
+    },
+    "event_definition": {
+      "key": "generic_name + initial_posting_date",
+      "n_events_in_model_data": 57,
+      "merge_check_normalized_ingredient": {
+        "n_events_under_ingredient_key": 57,
+        "n_events_that_would_merge": 0,
+        "approved_without_change": true
+      },
+      "rows_per_event": {
+        "min": 1,
+        "median": 5.0,
+        "max": 175
+      },
+      "largest_event": "Lisdexamfetamine Dimesylate Capsule | 07/14/2023",
+      "largest_event_share_of_rows": 0.21084337349397592
+    },
+    "mixed_label_resolution": {
+      "method": "majority vote by distinct company_name count within event (company_name has 0 nulls)",
+      "n_mixed_events_rowlevel": 14,
+      "n_exact_ties": 4,
+      "ties": [
+        {
+          "event_id": "Bupivacaine Hydrochloride Injection | 02/20/2018",
+          "companies_supply": 3,
+          "companies_demand": 3,
+          "tiebreak_used": "row_count",
+          "tiebreak_label": 1
+        },
+        {
+          "event_id": "Ketorolac Tromethamine Injection | 03/23/2018",
+          "companies_supply": 1,
+          "companies_demand": 1,
+          "tiebreak_used": "row_count",
+          "tiebreak_label": 1
+        },
+        {
+          "event_id": "Remifentanil Hydrochloride Injection | 06/28/2022",
+          "companies_supply": 1,
+          "companies_demand": 1,
+          "tiebreak_used": "row_count",
+          "tiebreak_label": 0
+        },
+        {
+          "event_id": "Sodium Bicarbonate Injection | 03/01/2017",
+          "companies_supply": 1,
+          "companies_demand": 1,
+          "tiebreak_used": "row_count",
+          "tiebreak_label": 1
+        }
+      ]
+    },
+    "category_threshold": {
+      "primary_threshold_events": 5,
+      "primary_merged_categories": [
+        "Anti-Infective",
+        "Antiviral",
+        "Dermatology",
+        "Gastroenterology",
+        "Hematology",
+        "Medical Imaging",
+        "Neurology",
+        "Oncology",
+        "Other",
+        "Rheumatology"
+      ],
+      "sensitivity_threshold_events": 3,
+      "sensitivity_merged_categories": [
+        "Antiviral",
+        "Dermatology",
+        "Gastroenterology",
+        "Hematology",
+        "Medical Imaging",
+        "Neurology",
+        "Other"
+      ],
+      "note": "Category dummy columns differ from the original row-level model's: threshold is based on EVENT counts, not row counts, so the kept categories (Anesthesia, Analgesia/Addiction, Cardiovascular, Psychiatry, Endocrinology/Metabolism) and the resulting cat_* columns in X are not the same set as rxwatch_model_columns.pkl."
+    },
+    "event_level_class_balance": {
+      "supply_side_events": 27,
+      "demand_side_events": 30,
+      "total_events": 57
+    },
+    "primary": {
+      "description": "Event-level model: one row per event (median-aggregated manufacturer_count/recall_count, constant primary_category/dosage_category), <5-event category threshold, 5-fold StratifiedKFold x 10 seeds.",
+      "auc_mean": 0.6270555555555556,
+      "auc_std": 0.14549703021872692,
+      "auc_min": 0.1388888888888889,
+      "auc_max": 0.9,
+      "n_folds_total": 50,
+      "n_degenerate_folds_skipped": 0,
+      "per_fold_aucs": [
+        0.5972222222222223,
+        0.6666666666666666,
+        0.6666666666666667,
+        0.6333333333333333,
+        0.7333333333333334,
+        0.6111111111111112,
+        0.6944444444444445,
+        0.6000000000000001,
+        0.6666666666666667,
+        0.5333333333333333,
+        0.5277777777777777,
+        0.888888888888889,
+        0.6000000000000001,
+        0.6333333333333333,
+        0.7,
+        0.75,
+        0.5555555555555556,
+        0.4666666666666667,
+        0.9,
+        0.6,
+        0.3055555555555555,
+        0.5833333333333335,
+        0.8,
+        0.7333333333333334,
+        0.6333333333333333,
+        0.6944444444444444,
+        0.1388888888888889,
+        0.6666666666666666,
+        0.8,
+        0.6333333333333333,
+        0.6666666666666667,
+        0.4722222222222222,
+        0.4166666666666667,
+        0.3,
+        0.7333333333333334,
+        0.5555555555555556,
+        0.8333333333333335,
+        0.5333333333333334,
+        0.8333333333333334,
+        0.5,
+        0.638888888888889,
+        0.888888888888889,
+        0.65,
+        0.5666666666666667,
+        0.6000000000000001,
+        0.6944444444444444,
+        0.7222222222222222,
+        0.5333333333333334,
+        0.6,
+        0.6000000000000001
+      ],
+      "mannwhitney": {
+        "label": "event_level_primary (all 57 events)",
+        "U": 339.5,
+        "p_value": 0.29809623219198667,
+        "n_supply": 27,
+        "n_demand": 30,
+        "median_supply": 9.0,
+        "median_demand": 15.0,
+        "iqr_supply": [
+          5.0,
+          25.75
+        ],
+        "iqr_demand": [
+          5.0,
+          33.5
+        ],
+        "rank_biserial_correlation": -0.16172839506172842
+      }
+    },
+    "secondary_row_level_grouped_cv": {
+      "description": "Row-level pipeline, StratifiedGroupKFold (grouped by event_id) so no event's rows split across train/test, 5 folds x 10 seeds.",
+      "unweighted": {
+        "auc_mean": 0.734971004089232,
+        "auc_std": 0.16301570949416241,
+        "auc_min": 0.43915343915343913,
+        "auc_max": 0.9974066870426971,
+        "per_fold_aucs": [
+          0.856375227686703,
+          0.7036138733931603,
+          0.8324287652645861,
+          0.4574314574314574,
+          0.772716816195077,
+          0.9873148148148148,
+          0.6962899050905954,
+          0.7285484242005981,
+          0.5065716195143685,
+          0.7645107794361525,
+          0.9924791591156216,
+          0.7013721714010592,
+          0.7123321123321124,
+          0.46895424836601307,
+          0.8077260755048288,
+          0.9951975353388909,
+          0.6977611940298507,
+          0.6962148962148962,
+          0.45845004668534084,
+          0.8494293239683934,
+          0.8689630034627301,
+          0.7132664437012263,
+          0.7737047898338221,
+          0.5063319764812302,
+          0.7938988095238095,
+          0.8656290292871615,
+          0.6964138741916519,
+          0.8154936461388074,
+          0.4855269109000452,
+          0.7874540441176471,
+          0.9974066870426971,
+          0.6909392789373814,
+          0.6848401196227283,
+          0.43915343915343913,
+          0.8729081863410222,
+          0.9951838473650088,
+          0.57554379776602,
+          0.7840802987861811,
+          0.507243195785777,
+          0.7926739926739927,
+          0.9919354838709676,
+          0.70217519106408,
+          0.7727779015370907,
+          0.44757094757094756,
+          0.7566137566137567,
+          0.9953951003868116,
+          0.6955946076071258,
+          0.7949956101843721,
+          0.4570494864612512,
+          0.8020683020683022
+        ]
+      },
+      "weighted_inverse_rows_per_event": {
+        "auc_mean": 0.6809601801542685,
+        "auc_std": 0.19026317118623634,
+        "auc_min": 0.2835736060571687,
+        "auc_max": 0.9738310929281122
+      },
+      "n_degenerate_folds_skipped": 0,
+      "per_seed_means": [
+        0.7245132279941968,
+        0.7366471086113059,
+        0.736572753343927,
+        0.7394105992474744,
+        0.7312330046005636,
+        0.7301035009270627,
+        0.7370495422194537,
+        0.7309450264753959,
+        0.7342146561313686,
+        0.7490206213415725
+      ],
+      "std_across_seed_means": 0.006249862910131302
+    },
+    "sensitivity_checks": {
+      "category_threshold_lt3": {
+        "auc_mean": 0.6079444444444444,
+        "auc_std": 0.14414285823531778,
+        "auc_min": 0.1388888888888889,
+        "auc_max": 0.9000000000000001
+      },
+      "excluding_largest_event": {
+        "largest_event_id": "Lisdexamfetamine Dimesylate Capsule | 07/14/2023",
+        "auc_mean_with": 0.6270555555555556,
+        "auc_mean_without": 0.6155,
+        "dose_oral_coef_with": 0.9879979217001337,
+        "dose_oral_coef_without": 0.9160208903594547
+      },
+      "drop_all_mixed_events": {
+        "n_events_remaining": 43,
+        "auc_mean": 0.6977500000000001,
+        "auc_std": 0.20395603080075864,
+        "mannwhitney": {
+          "label": "event_level_sensitivity_drop_mixed",
+          "U": 136.0,
+          "p_value": 0.022555725469964618,
+          "n_supply": 20,
+          "n_demand": 23,
+          "median_supply": 9.0,
+          "median_demand": 21.0,
+          "iqr_supply": [
+            2.5,
+            17.5
+          ],
+          "iqr_demand": [
+            10.5,
+            38.5
+          ],
+          "rank_biserial_correlation": -0.408695652173913
+        }
+      }
+    },
+    "permutation_test": {
+      "description": "1000 label permutations of the PRIMARY event-level model, full 5-fold x 10-seed StratifiedKFold rerun per permutation (same methodology as the primary result).",
+      "n_permutations": 1000,
+      "observed_auc": 0.6270555555555556,
+      "null_mean": 0.4980366666666666,
+      "null_std": 0.09595325203091683,
+      "null_95th_percentile": 0.6500861111111111,
+      "permutation_p_value": 0.0939060939060939,
+      "n_permuted_aucs_gte_observed": 93
+    }
   }
 }

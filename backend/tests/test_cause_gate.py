@@ -33,12 +33,14 @@ def test_lisdexamfetamine_returns_nonempty_reasons_and_no_estimate():
 
 
 def test_shortages_only_drug_with_no_ndc_match_still_gets_status():
-    # Rifapentine has no NDC directory entry at all (confirmed: the NDC
-    # match fails entirely), but it IS one of the 237 shortages.csv drugs
-    # and must still get a real status, not "not_listed".
-    r = build_drug_result("Rifapentine Tablet, Film Coated")
+    # Conivaptan Hydrochloride Injection has no NDC directory entry at all
+    # (confirmed: the NDC match fails entirely, even on the complete
+    # re-pulled NDC file -- one of only 4 of the 237 shortages.csv drugs
+    # with no NDC match), but it IS one of the 237 shortages.csv drugs and
+    # must still get a real status, not "not_listed".
+    r = build_drug_result("Conivaptan Hydrochloride Injection")
     assert r["matchedGenericName"] is None
-    assert r["shortageStatus"] == "resolved"
+    assert r["shortageStatus"] == "current"
 
 
 # --- causeEstimate gate: each of the four conditions, checked with real drugs ---
@@ -195,12 +197,17 @@ def test_ibuprofen_is_not_flagged_despite_a_low_volume_matching_string():
 
 
 def test_real_single_source_drug_is_still_flagged():
-    # Ursodiol's only ndc_directory.csv entry ("Ursodiol (Process IV)") is a
-    # single-labeler bulk API/powder listing -- confirmed by inspection to be
-    # a genuine data-coverage gap, not a matching artifact: pooling across
-    # its full normalized collision group (there is no other raw variant)
-    # still returns 1. Pooling must not hide a real single-source drug.
-    r = build_drug_result("Ursodiol 300mg Cap")
+    # Ursodiol was used here before the NDC directory re-pull (see
+    # analysis/results.json's "ndc_completeness_comparison") -- its
+    # apparent single-labeler status turned out to be a data-coverage gap
+    # in the old incomplete file (33 labelers once the file was complete),
+    # not a real single-source drug, so it no longer belongs in this test.
+    # Flurazepam Hydrochloride Capsule IS genuine even on the complete
+    # file: its normalized collision group has exactly one finished-
+    # product (HUMAN PRESCRIPTION DRUG, CAPSULE) labeler, Chartwell RX,
+    # LLC -- the other two raw ndc_directory rows sharing its key are
+    # BULK INGREDIENT (API powder), excluded by the oral dosage filter.
+    r = build_drug_result("Flurazepam Hydrochloride Capsule")
     assert r["facts"]["manufacturerCount"] == 1
     assert r["fewManufacturersFlag"] is True
 
