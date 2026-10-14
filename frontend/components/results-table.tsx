@@ -61,8 +61,12 @@ export function ResultsTable({ drugs, dataAsOf }: { drugs: DrugResult[]; dataAsO
               <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
                 Status
               </th>
-              <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
-                Manufacturers
+              <th
+                scope="col"
+                className="px-4 py-3 font-medium text-muted-foreground"
+                title="Distinct companies listing this drug in the FDA NDC Directory, including companies that repackage or relabel."
+              >
+                Labelers
               </th>
               <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">
                 Recalls

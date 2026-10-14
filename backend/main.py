@@ -52,6 +52,66 @@ with open("data/metadata.json") as _f:
 
 manufacturer_counts = ndc.groupby("generic_name")["labeler_name"].nunique()
 
+# ---------------------------------------------------------------------------
+# NDC code normalization, ported from analysis/normalize_ndc.py (kept
+# duplicated rather than imported, since backend/ is deployed independently
+# of analysis/). Used only for the causeEstimate's training-faithful
+# manufacturer_count (see training_faithful_manufacturer_count below) --
+# matches analysis/validation.py's own join exactly: each shortage record's
+# own openfda.product_ndc code(s) -> ndc_directory's generic_name for that
+# code -> that generic_name's manufacturer_count, median across codes.
+# ---------------------------------------------------------------------------
+
+def normalize_ndc(raw) -> str | None:
+    """Converts one NDC string into a standardized 9-digit labeler-product
+    code (drops the package segment). Returns None if unparseable."""
+    if pd.isna(raw):
+        return None
+    s = str(raw).strip()
+    if s.startswith("[") and s.endswith("]"):
+        try:
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                s = str(parsed[0])
+            else:
+                return None
+        except (ValueError, SyntaxError):
+            return None
+    s = re.sub(r"[^0-9\-]", "", s)
+    parts = [p for p in s.split("-") if p != ""]
+    if len(parts) < 2:
+        return None
+    labeler, product = parts[0], parts[1]
+    return labeler.zfill(5) + product.zfill(4)
+
+
+def expand_ndc_list(raw) -> list[str]:
+    """Like normalize_ndc, but for columns that may hold MULTIPLE NDCs per
+    row (shortages.csv's openfda.product_ndc: one shortage record can list
+    several package NDCs) -- returns every normalized code, not just the
+    first."""
+    if pd.isna(raw):
+        return []
+    s = str(raw).strip()
+    if s.startswith("[") and s.endswith("]"):
+        try:
+            parsed = ast.literal_eval(s)
+            if not isinstance(parsed, list):
+                parsed = [s]
+        except (ValueError, SyntaxError):
+            parsed = [s]
+    else:
+        parsed = [s]
+    return [n for item in parsed if (n := normalize_ndc(item))]
+
+
+_ndc_code_lookup_df = pd.DataFrame({
+    "code": ndc["product_ndc"].apply(normalize_ndc),
+    "generic_name": ndc["generic_name"],
+}).dropna(subset=["code"]).drop_duplicates(subset="code", keep="first")
+_ndc_code_to_generic_name: dict[str, str] = dict(zip(_ndc_code_lookup_df["code"], _ndc_code_lookup_df["generic_name"]))
+
+
 def get_primary_category(x):
     if pd.isna(x):
         return None
@@ -516,6 +576,17 @@ _ndc_dosage_category = ndc["dosage_form"].apply(
     lambda x: _dosage_words_to_category(_DOSAGE_FORM_RE.findall(str(x))) if pd.notna(x) else None
 )
 
+# Same exclusion list as analysis/validation.py's PRE-DECLARED
+# finished-products-only sensitivity: bulk/raw-material and
+# further-processing listings aren't real suppliers a pharmacist can buy
+# from, so they shouldn't count toward "how many companies sell this."
+NON_FINISHED_PRODUCT_TYPES = {
+    "BULK INGREDIENT", "DRUG FOR FURTHER PROCESSING",
+    "ANIMAL DRUG FOR FURTHER PROCESSING", "LICENSED VACCINE BULK INTERMEDIATE",
+}
+_ndc_finished = ndc[~ndc["product_type"].isin(NON_FINISHED_PRODUCT_TYPES)]
+manufacturer_counts_finished = _ndc_finished.groupby("generic_name")["labeler_name"].nunique()
+
 
 def _pooled_manufacturer_count(matched_generic: str, query_extracted_dosage: str | None) -> int:
     """Distinct labelers across every raw ndc_directory generic_name string
@@ -524,7 +595,9 @@ def _pooled_manufacturer_count(matched_generic: str, query_extracted_dosage: str
     generics whose manufacturer base is split across many textual
     spellings in the data (e.g. "Ibuprofen" vs "ibuprofen tablet" vs
     "IBUPROFEN 200MG" are three different exact strings for the same real
-    drug, each with its own small labeler count).
+    drug, each with its own small labeler count). Excludes BULK INGREDIENT
+    and other non-finished product_type rows throughout (see
+    NON_FINISHED_PRODUCT_TYPES) -- those aren't real suppliers.
 
     When the query specifies a dosage form, restricts pooling to rows
     whose OWN dosage_form simplifies to the same category (e.g. an oral
@@ -532,22 +605,22 @@ def _pooled_manufacturer_count(matched_generic: str, query_extracted_dosage: str
     falling back to the ungated pool if that leaves nothing.
 
     This is the facts/display count only -- NOT what's fed to the model
-    (see build_drug_result), which stays on the single-exact-string value
-    to match analysis/validation.py's own manufacturer_count definition
-    (see the comment above lookup_features's two return values)."""
+    (see build_drug_result's training_faithful_manufacturer_count, which
+    uses the shortage record's own NDC codes and includes whatever
+    product_type they actually are, matching training exactly)."""
     pool_key, _ = normalize_query_name(matched_generic)
     group = _ndc_generic_normalized_index.get(pool_key)
     if not group:
-        return int(manufacturer_counts.get(matched_generic, 1))
+        return int(manufacturer_counts_finished.get(matched_generic, 1))
 
-    subset = ndc[ndc["generic_name"].isin(set(group))]
+    subset = _ndc_finished[_ndc_finished["generic_name"].isin(set(group))]
     if query_extracted_dosage:
         dose_subset = subset[_ndc_dosage_category.loc[subset.index] == query_extracted_dosage]
         if len(dose_subset) > 0:
             subset = dose_subset
 
     count = int(subset["labeler_name"].nunique())
-    return count if count > 0 else int(manufacturer_counts.get(matched_generic, 1))
+    return count if count > 0 else int(manufacturer_counts_finished.get(matched_generic, 1))
 
 
 # ---------------------------------------------------------------------------
@@ -576,6 +649,13 @@ _shortage_rows_by_generic_name: dict[str, list[dict]] = {
     for _gname, _group in shortages.groupby("generic_name")
 }
 
+# each raw shortages.csv generic_name's own (unexploded) openfda.product_ndc
+# values across its rows -- for training_faithful_manufacturer_count below.
+_shortage_product_ndc_by_generic_name: dict[str, list] = {
+    _gname: _group["openfda.product_ndc"].tolist()
+    for _gname, _group in shortages.groupby("generic_name")
+} if "openfda.product_ndc" in shortages.columns else {}
+
 # each raw shortages.csv generic_name's own dosage_category (reusing the
 # per-row column computed above), for the dosage-aware pooling tiebreak.
 _shortage_dosage_by_generic_name: dict[str, str | None] = {
@@ -601,7 +681,7 @@ def _rollup_status(rows: list[dict]) -> str:
     return "resolved"
 
 
-def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[str], list[dict], str | None]:
+def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[str], list[dict], str | None, list[str]]:
     """Drug-level status rule: any Current record gives "current"; otherwise
     any To Be Discontinued gives "to_be_discontinued"; otherwise "resolved".
     A drug with no matching shortages.csv records at all is "not_listed".
@@ -615,17 +695,22 @@ def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[
     injection presentation, not an unrelated suppository that happens to
     share the same "hydrocortisone" normalized key.
 
-    Returns (status, reasons, matchedShortageEntries, shortageMatchType)
+    Returns (status, reasons, matchedShortageEntries, shortageMatchType, pooledRaws)
     where matchedShortageEntries is
     [{"name": raw_generic_name, "status": that_presentation's_own_status}, ...]
-    for every raw presentation that actually contributed to the rollup, and
-    shortageMatchType is "exact"/"approximate"/None (None = not_listed).
+    for every raw presentation that actually contributed to the rollup,
+    shortageMatchType is "exact"/"approximate"/None (None = not_listed), and
+    pooledRaws is the list of raw shortages.csv generic_name strings that
+    contributed (same set matchedShortageEntries' "name"s come from) --
+    exposed so callers can pull those presentations' own openfda.product_ndc
+    codes for a training-faithful manufacturer_count (see
+    training_faithful_manufacturer_count below).
     """
     normalized_query, query_extracted_dosage = normalize_query_name(raw_query_name)
     query_numbers = extract_numbers_for_guard(raw_query_name)
     query_ingredient_count = count_ingredients(raw_query_name)
     if not normalized_query:
-        return "not_listed", [], [], None
+        return "not_listed", [], [], None, []
 
     candidate_group = _shortage_generic_normalized_index.get(normalized_query)
     shortage_match_type = "exact" if candidate_group is not None else None
@@ -644,7 +729,7 @@ def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[
                 break
 
     if not candidate_group:
-        return "not_listed", [], [], None
+        return "not_listed", [], [], None, []
 
     filtered = [
         r for r in dict.fromkeys(candidate_group)  # de-dupe, preserve order
@@ -652,7 +737,7 @@ def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[
         and count_ingredients(r) == query_ingredient_count
     ]
     if not filtered:
-        return "not_listed", [], [], None
+        return "not_listed", [], [], None, []
 
     pooled_raws = filtered
     if query_extracted_dosage:
@@ -663,7 +748,7 @@ def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[
 
     all_rows = [row for raw in pooled_raws for row in _shortage_rows_by_generic_name.get(raw, [])]
     if not all_rows:
-        return "not_listed", [], [], None
+        return "not_listed", [], [], None, []
 
     status = _rollup_status(all_rows)
     reasons = sorted({r["shortage_reason"] for r in all_rows if pd.notna(r.get("shortage_reason"))})
@@ -671,7 +756,40 @@ def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[
         {"name": raw, "status": _rollup_status(_shortage_rows_by_generic_name.get(raw, []))}
         for raw in pooled_raws
     ]
-    return status, reasons, matched_entries, shortage_match_type
+    return status, reasons, matched_entries, shortage_match_type, pooled_raws
+
+
+def training_faithful_manufacturer_count(pooled_raws: list[str]) -> float | None:
+    """The causeEstimate's model input, computed exactly the way
+    analysis/validation.py's training pipeline computes manufacturer_count:
+    explode the pooled shortage presentations' OWN openfda.product_ndc
+    codes, map each code to its ndc_directory generic_name, look up that
+    generic_name's manufacturer_count, and take the MEDIAN across every
+    resolved package-level code -- matching training's per-event median
+    aggregation (see validation.py's event_level groupby). This is
+    deliberately NOT the free-text name-matching single-exact-string
+    lookup lookup_features() uses for facts.manufacturerCount/
+    fewManufacturersFlag -- those have no real NDC codes to anchor to, a
+    free-text query is inherently ambiguous about which product line is
+    meant, so they use a different (display-only) definition. The model
+    input has real NDC codes (from the actual shortage record), so it can
+    -- and should -- match training exactly.
+
+    Returns None if no NDC codes are available at all, or none resolve to
+    a manufacturer_count -- the causeEstimate gate requires this to be
+    non-None (no real NDC codes means no training-faithful value exists)."""
+    codes = []
+    for raw in pooled_raws:
+        for raw_ndc_field in _shortage_product_ndc_by_generic_name.get(raw, []):
+            codes.extend(expand_ndc_list(raw_ndc_field))
+    if not codes:
+        return None
+
+    counts = [manufacturer_counts.get(_ndc_code_to_generic_name[c]) for c in codes if c in _ndc_code_to_generic_name]
+    counts = [c for c in counts if c is not None]
+    if not counts:
+        return None
+    return float(pd.Series(counts).median())
 
 
 def resolve_collision_class_info(matched_generic: str, collision_raws: list[str] | None,
@@ -718,15 +836,15 @@ def resolve_collision_class_info(matched_generic: str, collision_raws: list[str]
 
 
 def lookup_features(raw_name: str) -> dict:
-    """Returns two distinct manufacturer counts: "manufacturer_count" (the
-    single-exact-string value, matching analysis/validation.py's own
-    definition -- the only one ever fed to the model, so inference stays
-    on the same feature distribution the model was trained on) and
-    "manufacturer_count_display" (pooled across every raw name variant
-    sharing the matched normalized form, dosage-aware -- the one shown to
-    the user and used for fewManufacturersFlag, since a pharmacist cares
-    about the real number of suppliers, not which exact string openFDA
-    happened to record)."""
+    """"manufacturer_count_display" is pooled across every raw ndc_directory
+    name variant sharing the matched normalized form, dosage-aware -- the
+    value shown to the user and used for fewManufacturersFlag, since a
+    pharmacist cares about the real number of suppliers, not which exact
+    string openFDA happened to record for this query's free-text match.
+    (The causeEstimate's model input is a SEPARATE value, computed by
+    training_faithful_manufacturer_count from the shortage record's own
+    NDC codes -- not derived from this free-text name lookup at all, since
+    training never free-text-matches a name either.)"""
     name = normalize_name(raw_name)
     normalized_query, query_extracted_dosage = normalize_query_name(raw_name)
 
@@ -804,7 +922,6 @@ def lookup_features(raw_name: str) -> dict:
     if matched_generic is None:
         return {
             "matched_generic_name": None,
-            "manufacturer_count": None,
             "manufacturer_count_display": None,
             "primary_category": None,
             "dosage_category": None,
@@ -813,14 +930,12 @@ def lookup_features(raw_name: str) -> dict:
             "query_extracted_dosage_form": query_extracted_dosage,
         }
 
-    manufacturer_count = int(manufacturer_counts.get(matched_generic, 1))
     manufacturer_count_display = _pooled_manufacturer_count(matched_generic, query_extracted_dosage)
     class_info = resolve_collision_class_info(matched_generic, collision_raws, query_extracted_dosage)
     recall_count = int(recall_counts_by_generic.get(matched_generic, 0))
 
     return {
         "matched_generic_name": matched_generic,
-        "manufacturer_count": manufacturer_count,
         "manufacturer_count_display": manufacturer_count_display,
         "primary_category": class_info.get("primary_category"),
         "dosage_category": class_info.get("dosage_category"),
@@ -871,24 +986,26 @@ def classify_ndc_match_type(match_method: str | None) -> str | None:
 def build_drug_result(raw_name: str) -> dict:
     features = lookup_features(raw_name)
     matched_generic_name = features["matched_generic_name"]
-    manufacturer_count = features["manufacturer_count"]
     manufacturer_count_display = features["manufacturer_count_display"]
     recall_count = features["recall_count"]
     primary_category = features["primary_category"]
     dosage_category = features["dosage_category"]
 
-    shortage_status, fda_stated_reasons, matched_shortage_entries, shortage_match_type = \
+    shortage_status, fda_stated_reasons, matched_shortage_entries, shortage_match_type, pooled_raws = \
         resolve_shortage_status_and_reasons(raw_name)
+
+    training_manufacturer_count = training_faithful_manufacturer_count(pooled_raws)
 
     cause_shown = (
         shortage_status == "current"
         and not fda_stated_reasons
         and primary_category is not None
         and dosage_category is not None
+        and training_manufacturer_count is not None
     )
     supply_probability = None
     if cause_shown:
-        X = build_feature_row(manufacturer_count, recall_count, primary_category, dosage_category)
+        X = build_feature_row(training_manufacturer_count, recall_count, primary_category, dosage_category)
         supply_probability = float(model.predict_proba(X)[0][1])
 
     return {

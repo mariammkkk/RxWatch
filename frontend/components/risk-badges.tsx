@@ -41,10 +41,10 @@ export function NotFoundBadge() {
 export function FewManufacturersBadge() {
   return (
     <span
-      title="Only 1 or 2 manufacturers make this drug, so there are fewer backup sources if one stops production."
+      title="Only 1 or 2 companies list this drug, so there are fewer backup sources if one stops production."
       className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20"
     >
-      Few manufacturers
+      Few labelers
     </span>
   )
 }

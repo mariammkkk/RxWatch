@@ -5,17 +5,17 @@ type PreviewRow = {
   drug: string
   form: string
   status: ShortageStatus
-  manufacturers: number
+  labelers: number
 }
 
 // Verified against the live backend (/api/score-batch) before hardcoding --
 // these are real statuses for real drugs from frontend/public/sample-inventory.csv,
 // not illustrative placeholders.
 const rows: PreviewRow[] = [
-  { drug: "Albuterol 90mcg HFA", form: "Inhalation aerosol", status: "current", manufacturers: 53 },
-  { drug: "Sodium Chloride 0.9% 1000mL", form: "Injectable", status: "to_be_discontinued", manufacturers: 95 },
-  { drug: "Hydrocortisone sodium succinate 100mg inj", form: "Injectable", status: "resolved", manufacturers: 7 },
-  { drug: "Lisinopril 10 mg tablet", form: "Oral", status: "not_listed", manufacturers: 37 },
+  { drug: "Albuterol 90mcg HFA", form: "Inhalation aerosol", status: "current", labelers: 41 },
+  { drug: "Sodium Chloride 0.9% 1000mL", form: "Injectable", status: "to_be_discontinued", labelers: 84 },
+  { drug: "Hydrocortisone sodium succinate 100mg inj", form: "Injectable", status: "resolved", labelers: 7 },
+  { drug: "Lisinopril 10 mg tablet", form: "Oral", status: "not_listed", labelers: 37 },
 ]
 
 const onShortageList = rows.filter((r) => r.status !== "not_listed").length
@@ -57,7 +57,7 @@ export function HeroPreview() {
             Status
           </span>
           <span className="hidden w-[90px] text-right text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground sm:block">
-            Mfrs
+            Labelers
           </span>
         </div>
 
@@ -73,7 +73,7 @@ export function HeroPreview() {
                 <StatusBadge status={row.status} />
               </div>
               <div className="hidden w-[90px] shrink-0 text-right text-sm text-muted-foreground sm:block">
-                {row.manufacturers}
+                {row.labelers}
               </div>
             </li>
           ))}

@@ -13,7 +13,7 @@ const steps = [
   },
   {
     title: "You know where to look closer",
-    body: "When a drug has few manufacturers or an active shortage, you'll see it immediately, so you know where backup sourcing matters most.",
+    body: "When a drug has few labelers or an active shortage, you'll see it immediately, so you know where backup sourcing matters most.",
   },
 ]
 

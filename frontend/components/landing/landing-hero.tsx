@@ -5,8 +5,8 @@ import { HeroPreview } from "@/components/landing/hero-preview"
 
 const atAGlance = [
   "FDA shortage status for every drug you carry: current, to be discontinued, resolved, or not listed",
-  "Manufacturer counts and recall history pulled straight from FDA records",
-  "A flag when a drug has only 1 or 2 manufacturers, so you know where backup sourcing matters most",
+  "Labeler counts and recall history pulled straight from FDA records",
+  "A flag when a drug is listed by only 1 or 2 companies, so you know where backup sourcing matters most",
 ]
 
 export function LandingHero() {
@@ -33,14 +33,6 @@ export function LandingHero() {
           <span className="hidden text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground md:block">
             Built on public FDA data
           </span>
-          <a
-            href="/writeup"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-          >
-            Methodology
-          </a>
         </div>
       </div>
 

@@ -6,16 +6,18 @@ function Stat({
   label,
   value,
   tone = "default",
+  title,
 }: {
   icon: typeof Boxes
   label: string
   value: number
   tone?: "default" | "danger" | "warn"
+  title?: string
 }) {
   const toneClass =
     tone === "danger" ? "text-red-600" : tone === "warn" ? "text-orange-600" : "text-primary"
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3" title={title}>
       <div className="flex size-9 items-center justify-center rounded-lg bg-secondary">
         <Icon className={`size-4.5 ${toneClass}`} aria-hidden="true" />
       </div>
@@ -42,7 +44,13 @@ export function SummaryStats({ drugs }: { drugs: DrugResult[] }) {
       <Stat icon={CheckCircle2} label="Resolved" value={resolved} />
       <Stat icon={Boxes} label="Not on shortage list" value={notListed} />
       <Stat icon={HelpCircle} label="Not found" value={notFound} />
-      <Stat icon={Ban} label="Few manufacturers" value={fewManufacturers} tone="warn" />
+      <Stat
+        icon={Ban}
+        label="Few labelers"
+        value={fewManufacturers}
+        tone="warn"
+        title="Only 1 or 2 companies list this drug, so there are fewer backup sources if one stops production."
+      />
     </section>
   )
 }

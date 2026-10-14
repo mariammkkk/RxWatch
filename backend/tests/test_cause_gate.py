@@ -11,7 +11,13 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from main import build_drug_result, build_feature_row, lookup_features, resolve_shortage_status_and_reasons
+from main import (
+    build_drug_result,
+    build_feature_row,
+    lookup_features,
+    resolve_shortage_status_and_reasons,
+    training_faithful_manufacturer_count,
+)
 
 
 # --- status/reason lookup must not depend on the NDC match succeeding ---
@@ -122,21 +128,21 @@ def test_build_feature_row_succeeds_when_both_resolved():
 # --- drug-level status rule ---
 
 def test_status_rule_no_match_is_not_listed():
-    status, reasons, entries, _ = resolve_shortage_status_and_reasons("")
+    status, reasons, entries, _, _ = resolve_shortage_status_and_reasons("")
     assert status == "not_listed"
     assert reasons == []
     assert entries == []
 
 
 def test_status_rule_unknown_source_name_is_not_listed():
-    status, reasons, entries, _ = resolve_shortage_status_and_reasons("Not A Real Shortages Drug Name")
+    status, reasons, entries, _, _ = resolve_shortage_status_and_reasons("Not A Real Shortages Drug Name")
     assert status == "not_listed"
     assert reasons == []
     assert entries == []
 
 
 def test_status_rule_all_resolved_records_gives_resolved():
-    status, _, _, _ = resolve_shortage_status_and_reasons("Triamcinolone Acetonide Injection")
+    status, _, _, _, _ = resolve_shortage_status_and_reasons("Triamcinolone Acetonide Injection")
     assert status == "resolved"
 
 
@@ -146,7 +152,7 @@ def test_status_rule_dosage_aware_pooling_isolates_matching_presentation():
     # normalize to bare "hydrocortisone" -- but the query here specifies a
     # dosage form ("injection"), so pooling must be restricted to the
     # matching presentation only, not pick up the unrelated suppository.
-    status, _, entries, _ = resolve_shortage_status_and_reasons("Hydrocortisone Sodium Succinate Injection")
+    status, _, entries, _, _ = resolve_shortage_status_and_reasons("Hydrocortisone Sodium Succinate Injection")
     assert status == "resolved"
     assert entries == [{"name": "Hydrocortisone Sodium Succinate Injection", "status": "resolved"}]
 
@@ -155,7 +161,7 @@ def test_status_rule_pools_across_colliding_names_when_dosage_unspecified():
     # without a dosage form in the query, both presentations are pooled and
     # the ambiguity is visible via matchedShortageEntries -- a documented,
     # known limitation of querying a collision group with no dosage hint.
-    status, _, entries, _ = resolve_shortage_status_and_reasons("Hydrocortisone Sodium Succinate")
+    status, _, entries, _, _ = resolve_shortage_status_and_reasons("Hydrocortisone Sodium Succinate")
     assert status == "to_be_discontinued"
     assert len(entries) == 2
     assert {"name": "Hydrocortisone Acetate Suppository", "status": "to_be_discontinued"} in entries
@@ -164,12 +170,12 @@ def test_status_rule_pools_across_colliding_names_when_dosage_unspecified():
 def test_status_rule_current_mixed_with_discontinued_gives_current():
     # Atropine Sulfate Injection mixes Current and To Be Discontinued across
     # its records (confirmed during Step A fact-finding); Current must win.
-    status, _, _, _ = resolve_shortage_status_and_reasons("Atropine Sulfate Injection")
+    status, _, _, _, _ = resolve_shortage_status_and_reasons("Atropine Sulfate Injection")
     assert status == "current"
 
 
 def test_status_rule_reasons_are_distinct_and_verbatim():
-    _, reasons, _, _ = resolve_shortage_status_and_reasons("Morphine Sulfate Injection")
+    _, reasons, _, _, _ = resolve_shortage_status_and_reasons("Morphine Sulfate Injection")
     assert len(reasons) == len(set(reasons))  # no duplicates
     assert all(isinstance(r, str) for r in reasons)
 
@@ -212,11 +218,51 @@ def test_real_single_source_drug_is_still_flagged():
     assert r["fewManufacturersFlag"] is True
 
 
-def test_pooled_display_count_does_not_change_what_feeds_the_model():
-    # The pooled/display count must stay cosmetic: build_feature_row (and
-    # therefore the model's causeEstimate) keeps using the single-exact-
-    # string value, matching analysis/validation.py's own manufacturer_count
-    # definition, so inference doesn't drift from the training distribution.
+def test_display_count_is_independent_of_the_training_faithful_model_input():
+    # facts.manufacturerCount (pooled, free-text name match) and the
+    # causeEstimate's model input (training_faithful_manufacturer_count,
+    # from the shortage record's own NDC codes) are two different numbers
+    # computed two different ways -- confirm they don't collapse into one.
     features = lookup_features("Metformin HCl 500mg Tab")
-    assert features["manufacturer_count"] == 1
     assert features["manufacturer_count_display"] > 2
+    assert "manufacturer_count" not in features  # removed: nothing reads it any more
+
+
+def test_training_faithful_manufacturer_count_reproduces_training_value_exactly():
+    # Triamcinolone Acetonide Injection is a real training event: exactly
+    # one shortages.csv row, one openfda.product_ndc code (826670800),
+    # which maps to ndc_directory's "triamcinolone acetonide" with 21
+    # labelers -- independently verified by rerunning validation.py's own
+    # merge/median logic directly against the same two source files.
+    _, _, _, _, pooled_raws = resolve_shortage_status_and_reasons("Triamcinolone Acetonide Injection")
+    assert pooled_raws == ["Triamcinolone Acetonide Injection"]
+    assert training_faithful_manufacturer_count(pooled_raws) == 21.0
+
+
+def test_training_faithful_manufacturer_count_gates_on_ndc_availability():
+    # Conivaptan Hydrochloride Injection has shortages.csv rows but none of
+    # them carry an openfda.product_ndc value at all (real data, confirmed
+    # by inspection) -- there is no training-faithful value to compute, so
+    # this must return None rather than falling back to anything else.
+    assert training_faithful_manufacturer_count(["Conivaptan Hydrochloride Injection"]) is None
+    assert training_faithful_manufacturer_count([]) is None
+
+
+def test_cause_estimate_not_shown_when_no_training_faithful_count_available():
+    # End-to-end regression check for a drug with no NDC codes at all
+    # (also has a stated reason, so this doesn't isolate the NDC gate on
+    # its own -- see test_training_faithful_manufacturer_count_gates_on_
+    # ndc_availability above for that -- but confirms no exception and no
+    # estimate leaks through for a real no-NDC-data drug end to end).
+    r = build_drug_result("Conivaptan Hydrochloride Injection")
+    assert r["causeEstimate"]["shown"] is False
+    assert r["causeEstimate"]["supplyProbability"] is None
+
+
+def test_cause_estimate_shown_with_real_ndc_backed_count():
+    # End-to-end sanity check that a real qualifying drug still gets an
+    # estimate through the new training-faithful pipeline.
+    r = build_drug_result("Heparin Sodium Injection")
+    assert r["shortageStatus"] == "current"
+    assert r["causeEstimate"]["shown"] is True
+    assert r["causeEstimate"]["supplyProbability"] is not None

@@ -5,7 +5,7 @@ const claims = [
   },
   {
     head: "It flags thin supply chains",
-    body: "Drugs made by only 1 or 2 manufacturers are flagged directly, so you know where a single disruption could hit hardest.",
+    body: "Drugs listed by only 1 or 2 companies are flagged directly, so you know where a single disruption could hit hardest.",
   },
   {
     head: "There's nothing to log into",

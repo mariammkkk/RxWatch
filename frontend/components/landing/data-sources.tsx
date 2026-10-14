@@ -40,17 +40,6 @@ export function DataSources() {
               </div>
             ))}
           </dl>
-          <a
-            href="/writeup"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
-          >
-            Read the full methodology and findings
-            <span aria-hidden="true" className="transition-transform duration-200 group-hover:translate-x-0.5">
-              &rarr;
-            </span>
-          </a>
         </div>
       </div>
     </section>

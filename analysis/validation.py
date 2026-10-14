@@ -94,7 +94,39 @@ model_data = features[features["reason_category"].isin(["Supply-side", "Demand-s
 model_data["is_supply_side"] = (model_data["reason_category"] == "Supply-side").astype(int)
 model_data = model_data.dropna(subset=["manufacturer_count", "recall_count", "primary_category", "dosage_category"])
 
-print(f"model_data: {len(model_data)} rows (matches committed baseline: {len(model_data) == 830})")
+print(f"model_data: {len(model_data)} rows (previous baseline on the incomplete NDC file: 830)")
+
+# ===========================================================================
+# NDC completeness comparison: re-pulled (complete, bulk download) vs the
+# 2026-08-20 incomplete file, on the SAME shortages_exploded rows. Purely
+# additive/read-only -- does not affect model_data or anything downstream.
+# ===========================================================================
+
+_OLD_NDC_PATH = "../backend/data/ndc_directory_2026-08-20_incomplete.csv"
+_old_ndc = pd.read_csv(_OLD_NDC_PATH)
+_old_ndc["ndc"] = _old_ndc["product_ndc"].apply(normalize_ndc)
+_old_ndc_lookup = _old_ndc[["ndc", "generic_name"]].drop_duplicates(subset="ndc").rename(
+    columns={"generic_name": "ndc_generic_name"})
+_old_manufacturer_counts = _old_ndc.groupby("generic_name")["labeler_name"].nunique().rename("manufacturer_count")
+
+_old_se = shortages_exploded.drop(columns=["ndc_generic_name"]).merge(_old_ndc_lookup, on="ndc", how="left")
+_old_features = _old_se.merge(_old_manufacturer_counts, left_on="ndc_generic_name", right_on="generic_name", how="left")
+_old_features = _old_features.merge(recall_counts, on="ndc", how="left")
+_old_features["recall_count"] = _old_features["recall_count"].fillna(0)
+_old_model_data = _old_features[_old_features["reason_category"].isin(["Supply-side", "Demand-side"])].copy()
+_old_model_data["is_supply_side"] = (_old_model_data["reason_category"] == "Supply-side").astype(int)
+_old_model_data = _old_model_data.dropna(subset=["manufacturer_count", "recall_count", "primary_category", "dosage_category"])
+_old_model_data["event_id"] = _old_model_data["generic_name"] + " | " + _old_model_data["initial_posting_date"].astype(str)
+
+ndc_match_rate_old = _old_se["ndc_generic_name"].notna().mean()
+# shortages_exploded already carries ndc_generic_name from the NEW-file merge above.
+ndc_match_rate_new = shortages_exploded["ndc_generic_name"].notna().mean()
+
+print()
+print("=== NDC completeness comparison (old incomplete file vs new complete file) ===")
+print(f"NDC join match rate on shortages_exploded rows -- OLD: {ndc_match_rate_old:.4%}  NEW: {ndc_match_rate_new:.4%}")
+print(f"model_data rows -- OLD: {len(_old_model_data)}  NEW: {len(model_data)}")
+print(f"model_data events -- OLD: {_old_model_data['event_id'].nunique()}  NEW: (computed below)")
 
 # ===========================================================================
 # event ID: generic_name (raw) + initial_posting_date -- approved definition.
@@ -103,6 +135,35 @@ print(f"model_data: {len(model_data)} rows (matches committed baseline: {len(mod
 model_data["event_id"] = model_data["generic_name"] + " | " + model_data["initial_posting_date"].astype(str)
 n_events_approved = model_data["event_id"].nunique()
 print(f"Events under approved definition (generic_name + initial_posting_date): {n_events_approved}")
+print(f"model_data events -- OLD: {_old_model_data['event_id'].nunique()}  NEW: {n_events_approved}")
+
+# ---------------------------------------------------------------------------
+# manufacturer_count change tracking: of the rows/events present under BOTH
+# the old incomplete file and the new complete file, how many actually had
+# their manufacturer_count value change? (838/873-row NEW model_data is a
+# strict superset of the 830-row OLD one -- every old row's original
+# shortages_exploded index is still present, by construction of the merge.)
+# ---------------------------------------------------------------------------
+
+_old_cmp = _old_model_data.reset_index().rename(columns={"index": "orig_idx", "manufacturer_count": "manufacturer_count_old"})
+_new_cmp = model_data.reset_index().rename(columns={"index": "orig_idx", "manufacturer_count": "manufacturer_count_new"})
+_common = _old_cmp[["orig_idx", "generic_name", "event_id", "manufacturer_count_old"]].merge(
+    _new_cmp[["orig_idx", "manufacturer_count_new"]], on="orig_idx", how="inner")
+_common["mfr_count_diff"] = _common["manufacturer_count_new"] - _common["manufacturer_count_old"]
+_rows_changed = (_common["mfr_count_diff"] != 0).sum()
+_common_events = _common.groupby("event_id").agg(old_median=("manufacturer_count_old", "median"),
+                                                   new_median=("manufacturer_count_new", "median"))
+_events_changed = (_common_events["old_median"] != _common_events["new_median"]).sum()
+_top10_changes = _common.reindex(_common["mfr_count_diff"].abs().sort_values(ascending=False).index).head(10)
+_new_events_added = sorted(set(model_data["event_id"]) - set(_old_model_data["event_id"]))
+
+print()
+print("=== manufacturer_count change tracking (rows/events common to old and new) ===")
+print(f"Of the {len(_old_model_data)} old rows, changed manufacturer_count under the new file: {_rows_changed}")
+print(f"Of the {len(_common_events)} old events, changed event-level (median) manufacturer_count: {_events_changed}")
+print(f"New events added under the complete file (absent from the old 57): {_new_events_added}")
+print("10 largest manufacturer_count changes (common rows):")
+print(_top10_changes[["generic_name", "event_id", "manufacturer_count_old", "manufacturer_count_new", "mfr_count_diff"]].to_string())
 
 # ---------------------------------------------------------------------------
 # merge-check: would a normalized-active-ingredient + date key merge any of
@@ -668,6 +729,148 @@ results["permutation_test"] = {
     "permutation_p_value": float(permutation_p),
     "n_permuted_aucs_gte_observed": int(np.sum(null_aucs >= observed_auc)),
 }
+
+results["ndc_completeness_comparison"] = {
+    "description": "2026-08-20 incomplete NDC file vs the re-pulled complete file (bulk download), "
+                    "on the same shortages_exploded rows. Does not change the primary definition -- "
+                    "manufacturer_count is still a single-exact-string lookup, just computed on complete data.",
+    "ndc_join_match_rate_old": float(ndc_match_rate_old),
+    "ndc_join_match_rate_new": float(ndc_match_rate_new),
+    "model_data_rows_old": int(len(_old_model_data)),
+    "model_data_rows_new": int(len(model_data)),
+    "model_data_events_old": int(_old_model_data["event_id"].nunique()),
+    "model_data_events_new": int(n_events_approved),
+    "rows_common_to_both_with_changed_manufacturer_count": int(_rows_changed),
+    "rows_common_to_both_total": int(len(_old_model_data)),
+    "events_common_to_both_with_changed_manufacturer_count": int(_events_changed),
+    "events_common_to_both_total": int(len(_common_events)),
+    "new_events_added": _new_events_added,
+    "top_10_manufacturer_count_changes": [
+        {"generic_name": r["generic_name"], "event_id": r["event_id"],
+         "manufacturer_count_old": float(r["manufacturer_count_old"]),
+         "manufacturer_count_new": float(r["manufacturer_count_new"]),
+         "diff": float(r["mfr_count_diff"])}
+        for _, r in _top10_changes.iterrows()
+    ],
+}
+
+# ===========================================================================
+# PRE-DECLARED SENSITIVITY: same primary definition and methodology, but
+# manufacturer_count excludes BULK INGREDIENT and other non-finished
+# product_type rows from the labeler count. Decided and locked BEFORE this
+# result (or the primary rerun's result) was seen. Does NOT replace primary
+# regardless of outcome -- reported alongside it only.
+#
+# Self-contained: fresh local variable names throughout, so nothing here
+# can affect the PRIMARY pipeline above. Reuses apply_category_grouping,
+# build_design_matrix, run_event_level_cv, run_event_mannwhitney as-is.
+# ===========================================================================
+
+print()
+print("=== PRE-DECLARED SENSITIVITY: finished-products-only manufacturer_count ===")
+
+NON_FINISHED_PRODUCT_TYPES = {
+    "BULK INGREDIENT", "DRUG FOR FURTHER PROCESSING",
+    "ANIMAL DRUG FOR FURTHER PROCESSING", "LICENSED VACCINE BULK INTERMEDIATE",
+}
+_ndc_finished = ndc[~ndc["product_type"].isin(NON_FINISHED_PRODUCT_TYPES)]
+manufacturer_counts_fin = _ndc_finished.groupby("generic_name")["labeler_name"].nunique().rename("manufacturer_count")
+print(f"Excluded product_type values: {sorted(NON_FINISHED_PRODUCT_TYPES)}")
+print(f"Rows excluded from the labeler count: {len(ndc) - len(_ndc_finished)} / {len(ndc)}")
+
+features_fin = shortages_exploded.merge(manufacturer_counts_fin, left_on="ndc_generic_name", right_on="generic_name", how="left")
+features_fin = features_fin.merge(recall_counts, on="ndc", how="left")
+features_fin["recall_count"] = features_fin["recall_count"].fillna(0)
+
+model_data_fin = features_fin[features_fin["reason_category"].isin(["Supply-side", "Demand-side"])].copy()
+model_data_fin["is_supply_side"] = (model_data_fin["reason_category"] == "Supply-side").astype(int)
+model_data_fin = model_data_fin.dropna(subset=["manufacturer_count", "recall_count", "primary_category", "dosage_category"])
+model_data_fin["event_id"] = model_data_fin["generic_name"] + " | " + model_data_fin["initial_posting_date"].astype(str)
+n_events_fin = model_data_fin["event_id"].nunique()
+print(f"model_data (finished-only): {len(model_data_fin)} rows, {n_events_fin} events "
+      f"(PRIMARY: {len(model_data)} rows, {n_events_approved} events)")
+
+event_label_df_fin, label_ties_fin = compute_event_labels(model_data_fin)
+model_data_fin = model_data_fin.merge(event_label_df_fin[["event_id", "event_label"]], on="event_id", how="left")
+
+events_per_category_fin = model_data_fin.drop_duplicates("event_id")["primary_category"].value_counts()
+model_data_fin["primary_category_grouped_primary"] = apply_category_grouping(model_data_fin, 5, events_per_category_fin)
+
+event_level_fin = model_data_fin.groupby("event_id").agg(
+    manufacturer_count=("manufacturer_count", "median"),
+    recall_count=("recall_count", "median"),
+    primary_category=("primary_category", "first"),
+    dosage_category=("dosage_category", "first"),
+    event_label=("event_label", "first"),
+    is_mixed_rowlevel=("event_id", lambda s: model_data_fin.loc[s.index, "is_supply_side"].nunique() > 1),
+).reset_index()
+events_per_category_el_fin = event_level_fin["primary_category"].value_counts()
+event_level_fin["primary_category_grouped_primary"] = apply_category_grouping(event_level_fin, 5, events_per_category_el_fin)
+
+X_event_fin = build_design_matrix(event_level_fin, "primary_category_grouped_primary")
+y_event_fin = event_level_fin["event_label"]
+
+event_fold_results_fin, event_degenerate_fin = run_event_level_cv(X_event_fin, y_event_fin)
+event_aucs_fin_arr = np.array([r["auc"] for r in event_fold_results_fin])
+print(f"Finished-products-only event-level AUC: mean={event_aucs_fin_arr.mean():.4f} "
+      f"std={event_aucs_fin_arr.std():.4f} ({len(event_degenerate_fin)} degenerate folds skipped)")
+
+mw_fin = run_event_mannwhitney(event_level_fin, "event_level_sensitivity_finished_products_only")
+
+print(f"=== Permutation test, finished-products-only sensitivity ({N_PERMUTATIONS} permutations) ===")
+t0_fin = time.time()
+observed_auc_fin = event_aucs_fin_arr.mean()
+null_aucs_fin = np.empty(N_PERMUTATIONS)
+for i in range(N_PERMUTATIONS):
+    y_shuffled_fin = y_event_fin.sample(frac=1, random_state=i).reset_index(drop=True)
+    y_shuffled_fin.index = y_event_fin.index
+    perm_fold_results_fin, _ = run_event_level_cv(X_event_fin, y_shuffled_fin, seeds=SEEDS)
+    null_aucs_fin[i] = np.mean([r["auc"] for r in perm_fold_results_fin])
+elapsed_fin = time.time() - t0_fin
+permutation_p_fin = (np.sum(null_aucs_fin >= observed_auc_fin) + 1) / (N_PERMUTATIONS + 1)
+print(f"Elapsed: {elapsed_fin:.1f}s  Observed AUC: {observed_auc_fin:.4f}  "
+      f"Permutation p-value: {permutation_p_fin:.4f}")
+
+results["sensitivity_finished_products_only"] = {
+    "description": "PRE-DECLARED sensitivity (decided before any results were seen): same event "
+                    "definition, labels, category threshold, and 5-fold x10-seed StratifiedKFold CV as "
+                    "PRIMARY, but manufacturer_count excludes BULK INGREDIENT and other non-finished "
+                    "product_type rows from the labeler count. Does NOT replace primary.",
+    "excluded_product_types": sorted(NON_FINISHED_PRODUCT_TYPES),
+    "n_rows": int(len(model_data_fin)),
+    "n_events": int(n_events_fin),
+    "auc_mean": float(event_aucs_fin_arr.mean()), "auc_std": float(event_aucs_fin_arr.std()),
+    "auc_min": float(event_aucs_fin_arr.min()), "auc_max": float(event_aucs_fin_arr.max()),
+    "n_folds_total": len(event_aucs_fin_arr), "n_degenerate_folds_skipped": len(event_degenerate_fin),
+    "mannwhitney": mw_fin,
+    "permutation_test": {
+        "n_permutations": N_PERMUTATIONS,
+        "observed_auc": float(observed_auc_fin),
+        "null_mean": float(null_aucs_fin.mean()),
+        "null_std": float(null_aucs_fin.std()),
+        "null_95th_percentile": float(np.percentile(null_aucs_fin, 95)),
+        "permutation_p_value": float(permutation_p_fin),
+        "n_permuted_aucs_gte_observed": int(np.sum(null_aucs_fin >= observed_auc_fin)),
+    },
+}
+
+# ===========================================================================
+# preserve the pre-re-pull results under a clearly labeled key, so the
+# history (computed on the 2026-08-20 incomplete NDC file) isn't lost.
+# Idempotent: if results.json already has this key (a previous run of this
+# same script already migrated it), keep that snapshot rather than
+# re-wrapping whatever is currently in "primary" etc. (which would already
+# be the NEW results, not the true original).
+# ===========================================================================
+
+if RESULTS_PATH.exists():
+    with open(RESULTS_PATH) as f:
+        _existing_results = json.load(f)
+    old_snapshot = _existing_results.get("ndc_2026_08_20_incomplete", _existing_results)
+else:
+    old_snapshot = {}
+
+results["ndc_2026_08_20_incomplete"] = old_snapshot
 
 with open(RESULTS_PATH, "w") as f:
     json.dump(results, f, indent=2, default=str)
