@@ -45,6 +45,12 @@ pip install fastapi uvicorn pandas scikit-learn joblib rapidfuzz --break-system-
 python3 -m uvicorn main:app --reload --port 8000
 ```
 
+Dev dependency for running the backend test suite:
+```bash
+pip install pytest --break-system-packages
+pytest tests/test_normalize.py
+```
+
 **Frontend** (in a separate terminal):
 ```bash
 cd frontend
