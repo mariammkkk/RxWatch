@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from main import (
     normalize_query_name, resolve_collision_class_info, _ndc_generic_normalized_index,
     extract_numbers_for_guard, _numbers_compatible, lookup_features, build_drug_result,
+    count_ingredients, _pre_strip_tokens, _rank_by_token_overlap,
 )
 
 
@@ -224,7 +225,7 @@ def test_candidate_only_numbers_downgrades_match_type_to_approximate():
 
 def test_query_only_numbers_stays_exact():
     r = build_drug_result("Sodium Chloride 0.9% 1000mL")
-    assert r["matchType"] == "exact"
+    assert r["ndcMatchType"] == "exact"
 
 
 # --- pharmacy-style abbreviation expansion, applied before normalization ---
@@ -274,3 +275,96 @@ def test_matched_shortage_entries_present_in_response():
     assert isinstance(r["matchedShortageEntries"], list)
     assert len(r["matchedShortageEntries"]) >= 1
     assert all({"name", "status"} <= set(e.keys()) for e in r["matchedShortageEntries"])
+
+
+# --- ingredient count rule: reject a candidate whose ingredient count
+# differs from the query's, regardless of numbers ---
+
+def test_count_ingredients_single():
+    assert count_ingredients("Dextrose 5% Injection") == 1
+
+
+def test_count_ingredients_comma_separated():
+    assert count_ingredients(
+        "Dextrose Monohydrate, Sodium Chloride, Sodium Lactate, Calcium Chloride, Magnesium Chloride"
+    ) == 5
+
+
+def test_count_ingredients_and_separated():
+    assert count_ingredients("Acetaminophen and Oxycodone Hydrochloride") == 2
+
+
+def test_count_ingredients_semicolon_and_slash_separated():
+    assert count_ingredients("Atazanavir Sulfate; Cobicistat") == 2
+    assert count_ingredients("Quinapril Hydrochloride/Hydrochlorothiazide") == 2
+
+
+def test_dextrose_5_percent_does_not_match_5_ingredient_combo():
+    # the fix for the headline bug: "Dextrose 5% inj" (1 ingredient) must
+    # not match a 5-ingredient electrolyte combo just because the combo's
+    # other ingredients are all salt/cation words that strip to nothing.
+    f = lookup_features("Dextrose 5% inj")
+    assert f["matched_generic_name"] is not None
+    assert count_ingredients(f["matched_generic_name"]) == 1
+
+
+def test_dextrose_50_percent_does_not_match_5_ingredient_combo():
+    f = lookup_features("Dextrose 50%")
+    assert f["matched_generic_name"] is not None
+    assert count_ingredients(f["matched_generic_name"]) == 1
+
+
+# --- collision-group ranking: prefer the candidate with the most token
+# overlap with the query (after abbreviation expansion, before salt/dosage
+# stripping), then fewest extra tokens ---
+
+def test_rank_by_token_overlap_prefers_more_shared_tokens():
+    query_tokens = _pre_strip_tokens("Hydrocortisone Sodium Succinate Injection")
+    raws = _ndc_generic_normalized_index["hydrocortisone"]
+    ranked = _rank_by_token_overlap(raws, query_tokens)
+    assert "sodium" in _pre_strip_tokens(ranked[0])
+    assert "succinate" in _pre_strip_tokens(ranked[0])
+
+
+def test_hydrocortisone_sodium_succinate_query_picks_sodium_succinate_variant():
+    # not the acetate variant, which used to win just by being first in
+    # insertion order.
+    f = lookup_features("Hydrocortisone sodium succinate 100mg inj")
+    assert "succinate" in f["matched_generic_name"].lower()
+    assert "acetate" not in f["matched_generic_name"].lower()
+    assert f["primary_category"] == "Pulmonary/Allergy"
+
+
+def test_metformin_hcl_tab_query_does_not_pick_er_variant():
+    # not the extended-release variant, which shares fewer tokens with the
+    # query than a plain hydrochloride/tablet variant does.
+    f = lookup_features("Metformin HCl 500mg Tab")
+    assert "er" not in f["matched_generic_name"].lower().split()
+    assert "extended" not in f["matched_generic_name"].lower()
+
+
+def test_matched_generic_and_class_come_from_the_same_variant():
+    # the class/dosage returned must describe the SAME raw name reported
+    # as matchedGenericName, not a different collision-group member.
+    f = lookup_features("Hydrocortisone sodium succinate 100mg inj")
+    from main import drug_class_lookup
+    own_info = drug_class_lookup.get(f["matched_generic_name"])
+    if own_info and own_info.get("primary_category"):
+        assert f["primary_category"] == own_info["primary_category"]
+
+
+# --- ndcMatchType / shortageMatchType are reported separately ---
+
+def test_ndc_and_shortage_match_types_are_both_present_and_independent():
+    r = build_drug_result("lincomycin hydrochloride")
+    assert "ndcMatchType" in r
+    assert "shortageMatchType" in r
+    assert "matchType" not in r
+    assert r["ndcMatchType"] == "exact"
+    assert r["shortageMatchType"] == "exact"
+
+
+def test_shortage_match_type_is_none_when_not_listed():
+    r = build_drug_result("cisplatin")
+    assert r["shortageStatus"] == "not_listed"
+    assert r["shortageMatchType"] is None

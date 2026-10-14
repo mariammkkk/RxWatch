@@ -18,6 +18,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(data)
   } catch (err) {
     console.error("Drug search failed:", err instanceof Error ? err.message : err)
-    return NextResponse.json({ suggestions: [] }, { status: 200 }) // fail soft — empty results, not a broken UI
+    return NextResponse.json({ suggestions: [] }, { status: 200 }) // fail soft: empty results, not a broken UI
   }
 }

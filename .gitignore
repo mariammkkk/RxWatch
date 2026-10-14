@@ -5,5 +5,9 @@ __pycache__/
 *.pyc
 backend/data/*.csv
 backend/data/*.json
+!backend/data/metadata.json
+analysis/data/*.csv
+!analysis/data/shortages_snapshot_2026-08-20.csv
+!analysis/data/recalls_snapshot_2026-08-20.csv
 AGENTS.md
 CLAUDE.md

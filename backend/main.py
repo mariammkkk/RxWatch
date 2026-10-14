@@ -313,7 +313,7 @@ def _strip_salt_words(name: str) -> str:
 _DOSAGE_FORM_WORD_LIST = (
     "tablet capsule injection solution suspension aerosol powder suppository "
     "cream gel ointment lotion spray kit tincture liquid patch elixir syrup "
-    "drops emulsion foam paste concentrate irrigant film inhalation nasal "
+    "drops emulsion foam paste concentrate irrigant film coated inhalation nasal "
     "ophthalmic oral topical rectal vaginal extended delayed release chewable "
     "metered transdermal implant pellet enema douche swab sponge strip wafer "
     "troche lozenge for"
@@ -391,6 +391,43 @@ def _numbers_compatible(query_numbers: frozenset, candidate_numbers: frozenset) 
     return candidate_numbers.issubset(query_numbers)
 
 
+# Active-ingredient count: a candidate whose ingredient count differs from
+# the query's is rejected outright, regardless of numbers -- this is what
+# stops "Dextrose 5% inj" (1 ingredient) from matching a 5-ingredient
+# electrolyte combo product just because the combo's other ingredients are
+# all salt/cation words that get stripped down to nothing.
+_INGREDIENT_SEPARATOR_RE = re.compile(r",|;|\band\b|/", re.IGNORECASE)
+
+
+def count_ingredients(raw_name: str) -> int:
+    # strip dosage-form words FIRST: a comma-attached modifier like
+    # "Tablet, Extended Release" or "Powder, For Solution" is one ingredient
+    # with a two-word dosage descriptor, not two ingredients -- without
+    # this, every such name would be miscounted and wrongly rejected
+    # against its own single-ingredient query.
+    name = _DOSAGE_FORM_RE.sub(" ", str(raw_name))
+    parts = _INGREDIENT_SEPARATOR_RE.split(name)
+    return len([p for p in parts if p.strip(" ,;")]) or 1
+
+
+def _pre_strip(raw_name: str) -> str:
+    """Lowercase, expand abbreviations, strip parenthetical qualifiers and
+    strength/unit tokens, strip punctuation -- but NOT dosage or salt
+    words yet. Shared by normalize_query_name() and _pre_strip_tokens()
+    (used for collision-group ranking), so the two stay in sync."""
+    name = str(raw_name).lower()
+    name = _expand_abbreviations(name)
+    name = _PARENTHETICAL_QUERY_RE.sub(" ", name)
+    name = _STRENGTH_PERCENT_RE.sub(" ", name)
+    name = _STRENGTH_UNIT_RE.sub(" ", name)
+    name = _PUNCTUATION_RE.sub(" ", name)
+    return re.sub(r"\s+", " ", name).strip()
+
+
+def _pre_strip_tokens(raw_name: str) -> frozenset[str]:
+    return frozenset(_pre_strip(raw_name).split())
+
+
 def normalize_query_name(raw_name: str) -> tuple[str, str | None]:
     """Lowercase, expand pharmacy abbreviations, strip parenthetical
     qualifiers, strength/unit tokens, punctuation, dosage-form words, and
@@ -403,12 +440,7 @@ def normalize_query_name(raw_name: str) -> tuple[str, str | None]:
     Numbers are handled separately by extract_numbers_for_guard(), since
     they're stripped from the key here but still needed for the guard.
     """
-    name = str(raw_name).lower()
-    name = _expand_abbreviations(name)
-    name = _PARENTHETICAL_QUERY_RE.sub(" ", name)
-    name = _STRENGTH_PERCENT_RE.sub(" ", name)
-    name = _STRENGTH_UNIT_RE.sub(" ", name)
-    name = _PUNCTUATION_RE.sub(" ", name)
+    name = _pre_strip(raw_name)
 
     dosage_words_found = _DOSAGE_FORM_RE.findall(name)
     name = _DOSAGE_FORM_RE.sub(" ", name)
@@ -418,14 +450,38 @@ def normalize_query_name(raw_name: str) -> tuple[str, str | None]:
     return name, _dosage_words_to_category(dosage_words_found)
 
 
-def _select_number_compatible_raw(raws: list[str], query_numbers: frozenset) -> str | None:
-    """Given several raw names sharing a normalized key, return the first
-    whose own numbers are compatible with the query's; None if every raw in
-    the group conflicts (e.g. querying "dextrose 5%" against a key whose
-    only member is "50% Dextrose")."""
-    for raw in raws:
-        if _numbers_compatible(query_numbers, extract_numbers_for_guard(raw)):
-            return raw
+def _rank_by_token_overlap(raws: list[str], query_tokens: frozenset[str]) -> list[str]:
+    """Rank candidates sharing a normalized key by overlap with the query's
+    pre-strip tokens: most shared tokens first, then fewest extra tokens as
+    a tiebreak. Fixes e.g. "Hydrocortisone sodium succinate 100mg inj"
+    picking the acetate variant just because it came first alphabetically,
+    and "Metformin HCl 500mg Tab" picking an ER variant over a plain one."""
+    def sort_key(raw: str) -> tuple[int, int]:
+        cand_tokens = _pre_strip_tokens(raw)
+        shared = len(query_tokens & cand_tokens)
+        extra = len(cand_tokens - query_tokens)
+        return (-shared, extra)
+
+    return sorted(dict.fromkeys(raws), key=sort_key)
+
+
+def _select_best_compatible_raw(raws: list[str], raw_query_name: str) -> str | None:
+    """Given several raw names sharing a normalized key: rank by token
+    overlap with the query (see _rank_by_token_overlap, defined below --
+    forward reference is fine since this is only ever called later, after
+    the whole module has loaded), then return the first that also passes
+    the number guard and the ingredient-count check (rejecting e.g. a
+    5-ingredient combo product for a 1-ingredient query regardless of
+    numbers). None if every raw in the group conflicts."""
+    query_tokens = _pre_strip_tokens(raw_query_name)
+    query_numbers = extract_numbers_for_guard(raw_query_name)
+    query_ingredient_count = count_ingredients(raw_query_name)
+    for raw in _rank_by_token_overlap(raws, query_tokens):
+        if not _numbers_compatible(query_numbers, extract_numbers_for_guard(raw)):
+            continue
+        if count_ingredients(raw) != query_ingredient_count:
+            continue
+        return raw
     return None
 
 
@@ -448,6 +504,49 @@ if "brand_name" in ndc.columns:
 # Homatropine Hydrobromide, two unrelated drugs that happen to share most of
 # their letters). 90 is the lowest score among confirmed-correct matches.
 QUERY_FUZZY_THRESHOLD = 90
+
+# Per-row simplified dosage category for every ndc_directory.csv entry,
+# reusing the same word-based classifier as the query side
+# (_dosage_words_to_category) instead of simplify_dosage()'s exact-value
+# match, since ndc_directory's own dosage_form strings ("TABLET, COATED",
+# "CAPSULE, LIQUID FILLED", "SUSPENSION/ DROPS", ...) aren't the same clean
+# vocabulary as shortages.csv's dosage_form column.
+_ndc_dosage_category = ndc["dosage_form"].apply(
+    lambda x: _dosage_words_to_category(_DOSAGE_FORM_RE.findall(str(x))) if pd.notna(x) else None
+)
+
+
+def _pooled_manufacturer_count(matched_generic: str, query_extracted_dosage: str | None) -> int:
+    """Distinct labelers across every raw ndc_directory generic_name string
+    sharing matched_generic's normalized form, not just matched_generic's
+    own exact string. The single-exact-string lookup undercounts real
+    generics whose manufacturer base is split across many textual
+    spellings in the data (e.g. "Ibuprofen" vs "ibuprofen tablet" vs
+    "IBUPROFEN 200MG" are three different exact strings for the same real
+    drug, each with its own small labeler count).
+
+    When the query specifies a dosage form, restricts pooling to rows
+    whose OWN dosage_form simplifies to the same category (e.g. an oral
+    tablet query doesn't pool in an unrelated injectable labeler count),
+    falling back to the ungated pool if that leaves nothing.
+
+    This is the facts/display count only -- NOT what's fed to the model
+    (see build_drug_result), which stays on the single-exact-string value
+    to match analysis/validation.py's own manufacturer_count definition
+    (see the comment above lookup_features's two return values)."""
+    pool_key, _ = normalize_query_name(matched_generic)
+    group = _ndc_generic_normalized_index.get(pool_key)
+    if not group:
+        return int(manufacturer_counts.get(matched_generic, 1))
+
+    subset = ndc[ndc["generic_name"].isin(set(group))]
+    if query_extracted_dosage:
+        dose_subset = subset[_ndc_dosage_category.loc[subset.index] == query_extracted_dosage]
+        if len(dose_subset) > 0:
+            subset = dose_subset
+
+    count = int(subset["labeler_name"].nunique())
+    return count if count > 0 else int(manufacturer_counts.get(matched_generic, 1))
 
 
 # ---------------------------------------------------------------------------
@@ -501,31 +600,34 @@ def _rollup_status(rows: list[dict]) -> str:
     return "resolved"
 
 
-def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[str], list[dict]]:
+def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[str], list[dict], str | None]:
     """Drug-level status rule: any Current record gives "current"; otherwise
     any To Be Discontinued gives "to_be_discontinued"; otherwise "resolved".
     A drug with no matching shortages.csv records at all is "not_listed".
     fdaStatedReasons is every distinct verbatim shortage_reason across all
     pooled records (not just one), since records can disagree.
 
-    Matching is number-guarded (same rule as the NDC side: a candidate's
-    numbers must be a subset of the query's, or either side has none) and,
-    when the query specifies a dosage form, pooling is restricted to
-    presentations whose OWN dosage form matches it -- so e.g. querying
-    "hydrocortisone sodium succinate injection" pools only the injection
-    presentation, not an unrelated suppository that happens to share the
-    same "hydrocortisone" normalized key.
+    Matching is number- and ingredient-count-guarded (same rules as the NDC
+    side) and, when the query specifies a dosage form, pooling is
+    restricted to presentations whose OWN dosage form matches it -- so e.g.
+    querying "hydrocortisone sodium succinate injection" pools only the
+    injection presentation, not an unrelated suppository that happens to
+    share the same "hydrocortisone" normalized key.
 
-    Returns (status, reasons, matchedShortageEntries) where the third value
-    is [{"name": raw_generic_name, "status": that_presentation's_own_status}, ...]
-    for every raw presentation that actually contributed to the rollup.
+    Returns (status, reasons, matchedShortageEntries, shortageMatchType)
+    where matchedShortageEntries is
+    [{"name": raw_generic_name, "status": that_presentation's_own_status}, ...]
+    for every raw presentation that actually contributed to the rollup, and
+    shortageMatchType is "exact"/"approximate"/None (None = not_listed).
     """
     normalized_query, query_extracted_dosage = normalize_query_name(raw_query_name)
     query_numbers = extract_numbers_for_guard(raw_query_name)
+    query_ingredient_count = count_ingredients(raw_query_name)
     if not normalized_query:
-        return "not_listed", [], []
+        return "not_listed", [], [], None
 
     candidate_group = _shortage_generic_normalized_index.get(normalized_query)
+    shortage_match_type = "exact" if candidate_group is not None else None
 
     if candidate_group is None:
         candidates = process.extract(
@@ -534,30 +636,33 @@ def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[
         )
         for candidate_key, _score, _ in candidates:
             group = _shortage_generic_normalized_index[candidate_key]
-            if any(_numbers_compatible(query_numbers, extract_numbers_for_guard(r)) for r in group):
+            if any(_numbers_compatible(query_numbers, extract_numbers_for_guard(r))
+                   and count_ingredients(r) == query_ingredient_count for r in group):
                 candidate_group = group
+                shortage_match_type = "approximate"
                 break
 
     if not candidate_group:
-        return "not_listed", [], []
+        return "not_listed", [], [], None
 
-    number_filtered = [
+    filtered = [
         r for r in dict.fromkeys(candidate_group)  # de-dupe, preserve order
         if _numbers_compatible(query_numbers, extract_numbers_for_guard(r))
+        and count_ingredients(r) == query_ingredient_count
     ]
-    if not number_filtered:
-        return "not_listed", [], []
+    if not filtered:
+        return "not_listed", [], [], None
 
-    pooled_raws = number_filtered
+    pooled_raws = filtered
     if query_extracted_dosage:
-        dosage_matched = [r for r in number_filtered
+        dosage_matched = [r for r in filtered
                            if _shortage_dosage_by_generic_name.get(r) == query_extracted_dosage]
         if dosage_matched:
             pooled_raws = dosage_matched
 
     all_rows = [row for raw in pooled_raws for row in _shortage_rows_by_generic_name.get(raw, [])]
     if not all_rows:
-        return "not_listed", [], []
+        return "not_listed", [], [], None
 
     status = _rollup_status(all_rows)
     reasons = sorted({r["shortage_reason"] for r in all_rows if pd.notna(r.get("shortage_reason"))})
@@ -565,7 +670,7 @@ def resolve_shortage_status_and_reasons(raw_query_name: str) -> tuple[str, list[
         {"name": raw, "status": _rollup_status(_shortage_rows_by_generic_name.get(raw, []))}
         for raw in pooled_raws
     ]
-    return status, reasons, matched_entries
+    return status, reasons, matched_entries, shortage_match_type
 
 
 def resolve_collision_class_info(matched_generic: str, collision_raws: list[str] | None,
@@ -612,6 +717,15 @@ def resolve_collision_class_info(matched_generic: str, collision_raws: list[str]
 
 
 def lookup_features(raw_name: str) -> dict:
+    """Returns two distinct manufacturer counts: "manufacturer_count" (the
+    single-exact-string value, matching analysis/validation.py's own
+    definition -- the only one ever fed to the model, so inference stays
+    on the same feature distribution the model was trained on) and
+    "manufacturer_count_display" (pooled across every raw name variant
+    sharing the matched normalized form, dosage-aware -- the one shown to
+    the user and used for fewManufacturersFlag, since a pharmacist cares
+    about the real number of suppliers, not which exact string openFDA
+    happened to record)."""
     name = normalize_name(raw_name)
     normalized_query, query_extracted_dosage = normalize_query_name(raw_name)
 
@@ -645,7 +759,7 @@ def lookup_features(raw_name: str) -> dict:
         # having numbers the query never specified.
         if matched_generic is None and normalized_query in _ndc_generic_normalized_index:
             collision_raws = _ndc_generic_normalized_index[normalized_query]
-            picked = _select_number_compatible_raw(collision_raws, query_numbers)
+            picked = _select_best_compatible_raw(collision_raws, raw_name)
             if picked is not None:
                 matched_generic = picked
                 candidate_numbers = extract_numbers_for_guard(picked)
@@ -653,7 +767,7 @@ def lookup_features(raw_name: str) -> dict:
                 match_method = "exact_normalized_generic_numeric_approx" if is_numeric_approx else "exact_normalized_generic"
         if matched_generic is None and normalized_query in _ndc_brand_normalized_index:
             brand_group = _ndc_brand_normalized_index[normalized_query]
-            picked_brand = _select_number_compatible_raw(brand_group, query_numbers)
+            picked_brand = _select_best_compatible_raw(brand_group, raw_name)
             if picked_brand is not None:
                 matched_row = ndc[ndc["brand_name"] == picked_brand].iloc[0]
                 matched_generic = matched_row["generic_name"]
@@ -672,7 +786,7 @@ def lookup_features(raw_name: str) -> dict:
             )
             for candidate_key, score, _ in candidates:
                 group = _ndc_generic_normalized_index[candidate_key]
-                picked = _select_number_compatible_raw(group, query_numbers)
+                picked = _select_best_compatible_raw(group, raw_name)
                 if picked is None:
                     continue
                 collision_raws = group
@@ -690,6 +804,7 @@ def lookup_features(raw_name: str) -> dict:
         return {
             "matched_generic_name": None,
             "manufacturer_count": None,
+            "manufacturer_count_display": None,
             "primary_category": None,
             "dosage_category": None,
             "recall_count": 0,
@@ -698,12 +813,14 @@ def lookup_features(raw_name: str) -> dict:
         }
 
     manufacturer_count = int(manufacturer_counts.get(matched_generic, 1))
+    manufacturer_count_display = _pooled_manufacturer_count(matched_generic, query_extracted_dosage)
     class_info = resolve_collision_class_info(matched_generic, collision_raws, query_extracted_dosage)
     recall_count = int(recall_counts_by_generic.get(matched_generic, 0))
 
     return {
         "matched_generic_name": matched_generic,
         "manufacturer_count": manufacturer_count,
+        "manufacturer_count_display": manufacturer_count_display,
         "primary_category": class_info.get("primary_category"),
         "dosage_category": class_info.get("dosage_category"),
         "recall_count": recall_count,
@@ -742,7 +859,7 @@ def build_feature_row(manufacturer_count: int, recall_count: int,
 _EXACT_MATCH_METHODS = {"exact_raw_generic", "exact_raw_brand", "exact_normalized_generic", "exact_normalized_brand"}
 
 
-def classify_match_type(match_method: str | None) -> str | None:
+def classify_ndc_match_type(match_method: str | None) -> str | None:
     if match_method is None:
         return None
     if match_method in _EXACT_MATCH_METHODS:
@@ -754,11 +871,13 @@ def build_drug_result(raw_name: str) -> dict:
     features = lookup_features(raw_name)
     matched_generic_name = features["matched_generic_name"]
     manufacturer_count = features["manufacturer_count"]
+    manufacturer_count_display = features["manufacturer_count_display"]
     recall_count = features["recall_count"]
     primary_category = features["primary_category"]
     dosage_category = features["dosage_category"]
 
-    shortage_status, fda_stated_reasons, matched_shortage_entries = resolve_shortage_status_and_reasons(raw_name)
+    shortage_status, fda_stated_reasons, matched_shortage_entries, shortage_match_type = \
+        resolve_shortage_status_and_reasons(raw_name)
 
     cause_shown = (
         shortage_status == "current"
@@ -774,17 +893,18 @@ def build_drug_result(raw_name: str) -> dict:
     return {
         "name": raw_name,
         "matchedGenericName": matched_generic_name,
-        "matchType": classify_match_type(features["match_method"]),
+        "ndcMatchType": classify_ndc_match_type(features["match_method"]),
+        "shortageMatchType": shortage_match_type,
         "shortageStatus": shortage_status,
         "fdaStatedReasons": fda_stated_reasons,
         "matchedShortageEntries": matched_shortage_entries,
         "facts": {
-            "manufacturerCount": manufacturer_count,
+            "manufacturerCount": manufacturer_count_display,
             "recallCount": recall_count,
             "therapeuticClass": primary_category,
             "dosageForm": dosage_category,
         },
-        "fewManufacturersFlag": manufacturer_count is not None and manufacturer_count in (1, 2),
+        "fewManufacturersFlag": manufacturer_count_display is not None and manufacturer_count_display in (1, 2),
         "causeEstimate": {
             "shown": cause_shown,
             "supplyProbability": supply_probability,

@@ -1,0 +1,22 @@
+{
+  "pulled_at": "2026-10-14T03:14:00.359183+00:00",
+  "source": "openFDA API pull",
+  "datasets": {
+    "shortages": {
+      "openfda_last_updated": null,
+      "record_count": 1627
+    },
+    "recalls": {
+      "openfda_last_updated": null,
+      "record_count": 10156
+    },
+    "ndc_directory": {
+      "openfda_last_updated": "2026-10-13",
+      "record_count": 138427,
+      "live_total_at_pull_time": 138427,
+      "source": "openFDA bulk download",
+      "bulk_export_date": "2026-10-13",
+      "bulk_file_url": "https://download.open.fda.gov/drug/ndc/drug-ndc-0001-of-0001.json.zip"
+    }
+  }
+}

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from main import build_drug_result, build_feature_row, resolve_shortage_status_and_reasons
+from main import build_drug_result, build_feature_row, lookup_features, resolve_shortage_status_and_reasons
 
 
 # --- status/reason lookup must not depend on the NDC match succeeding ---
@@ -120,21 +120,21 @@ def test_build_feature_row_succeeds_when_both_resolved():
 # --- drug-level status rule ---
 
 def test_status_rule_no_match_is_not_listed():
-    status, reasons, entries = resolve_shortage_status_and_reasons("")
+    status, reasons, entries, _ = resolve_shortage_status_and_reasons("")
     assert status == "not_listed"
     assert reasons == []
     assert entries == []
 
 
 def test_status_rule_unknown_source_name_is_not_listed():
-    status, reasons, entries = resolve_shortage_status_and_reasons("Not A Real Shortages Drug Name")
+    status, reasons, entries, _ = resolve_shortage_status_and_reasons("Not A Real Shortages Drug Name")
     assert status == "not_listed"
     assert reasons == []
     assert entries == []
 
 
 def test_status_rule_all_resolved_records_gives_resolved():
-    status, _, _ = resolve_shortage_status_and_reasons("Triamcinolone Acetonide Injection")
+    status, _, _, _ = resolve_shortage_status_and_reasons("Triamcinolone Acetonide Injection")
     assert status == "resolved"
 
 
@@ -144,7 +144,7 @@ def test_status_rule_dosage_aware_pooling_isolates_matching_presentation():
     # normalize to bare "hydrocortisone" -- but the query here specifies a
     # dosage form ("injection"), so pooling must be restricted to the
     # matching presentation only, not pick up the unrelated suppository.
-    status, _, entries = resolve_shortage_status_and_reasons("Hydrocortisone Sodium Succinate Injection")
+    status, _, entries, _ = resolve_shortage_status_and_reasons("Hydrocortisone Sodium Succinate Injection")
     assert status == "resolved"
     assert entries == [{"name": "Hydrocortisone Sodium Succinate Injection", "status": "resolved"}]
 
@@ -153,7 +153,7 @@ def test_status_rule_pools_across_colliding_names_when_dosage_unspecified():
     # without a dosage form in the query, both presentations are pooled and
     # the ambiguity is visible via matchedShortageEntries -- a documented,
     # known limitation of querying a collision group with no dosage hint.
-    status, _, entries = resolve_shortage_status_and_reasons("Hydrocortisone Sodium Succinate")
+    status, _, entries, _ = resolve_shortage_status_and_reasons("Hydrocortisone Sodium Succinate")
     assert status == "to_be_discontinued"
     assert len(entries) == 2
     assert {"name": "Hydrocortisone Acetate Suppository", "status": "to_be_discontinued"} in entries
@@ -162,11 +162,54 @@ def test_status_rule_pools_across_colliding_names_when_dosage_unspecified():
 def test_status_rule_current_mixed_with_discontinued_gives_current():
     # Atropine Sulfate Injection mixes Current and To Be Discontinued across
     # its records (confirmed during Step A fact-finding); Current must win.
-    status, _, _ = resolve_shortage_status_and_reasons("Atropine Sulfate Injection")
+    status, _, _, _ = resolve_shortage_status_and_reasons("Atropine Sulfate Injection")
     assert status == "current"
 
 
 def test_status_rule_reasons_are_distinct_and_verbatim():
-    _, reasons, _ = resolve_shortage_status_and_reasons("Morphine Sulfate Injection")
+    _, reasons, _, _ = resolve_shortage_status_and_reasons("Morphine Sulfate Injection")
     assert len(reasons) == len(set(reasons))  # no duplicates
     assert all(isinstance(r, str) for r in reasons)
+
+
+# --- manufacturer count pooling (facts.manufacturerCount / fewManufacturersFlag) ---
+#
+# Regression tests for the undercounting bug: the old single-exact-string
+# lookup picked ONE raw ndc_directory.csv generic_name string out of several
+# sharing a normalized key, so a widely-made generic could land on a
+# low-volume textual variant and wrongly read as scarce. Metformin and
+# ibuprofen are two of the most widely manufactured generics in the US and
+# must never be flagged as few-manufacturer, regardless of which exact raw
+# string the matcher happens to land on.
+
+def test_metformin_is_not_flagged_despite_a_low_volume_matching_string():
+    r = build_drug_result("Metformin HCl 500mg Tab")
+    assert r["facts"]["manufacturerCount"] > 2
+    assert r["fewManufacturersFlag"] is False
+
+
+def test_ibuprofen_is_not_flagged_despite_a_low_volume_matching_string():
+    r = build_drug_result("Ibuprofen 200mg tab")
+    assert r["facts"]["manufacturerCount"] > 2
+    assert r["fewManufacturersFlag"] is False
+
+
+def test_real_single_source_drug_is_still_flagged():
+    # Ursodiol's only ndc_directory.csv entry ("Ursodiol (Process IV)") is a
+    # single-labeler bulk API/powder listing -- confirmed by inspection to be
+    # a genuine data-coverage gap, not a matching artifact: pooling across
+    # its full normalized collision group (there is no other raw variant)
+    # still returns 1. Pooling must not hide a real single-source drug.
+    r = build_drug_result("Ursodiol 300mg Cap")
+    assert r["facts"]["manufacturerCount"] == 1
+    assert r["fewManufacturersFlag"] is True
+
+
+def test_pooled_display_count_does_not_change_what_feeds_the_model():
+    # The pooled/display count must stay cosmetic: build_feature_row (and
+    # therefore the model's causeEstimate) keeps using the single-exact-
+    # string value, matching analysis/validation.py's own manufacturer_count
+    # definition, so inference doesn't drift from the training distribution.
+    features = lookup_features("Metformin HCl 500mg Tab")
+    assert features["manufacturer_count"] == 1
+    assert features["manufacturer_count_display"] > 2

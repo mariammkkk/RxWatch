@@ -12,10 +12,10 @@ type PreviewRow = {
 // these are real statuses for real drugs from frontend/public/sample-inventory.csv,
 // not illustrative placeholders.
 const rows: PreviewRow[] = [
-  { drug: "Albuterol 90mcg HFA", form: "Inhalation aerosol", status: "current", manufacturers: 5 },
-  { drug: "Sodium Chloride 0.9% 1000mL", form: "Injectable", status: "to_be_discontinued", manufacturers: 12 },
-  { drug: "Hydrocortisone sodium succinate 100mg inj", form: "Injectable", status: "resolved", manufacturers: 3 },
-  { drug: "Lisinopril 10 mg tablet", form: "Oral", status: "not_listed", manufacturers: 39 },
+  { drug: "Albuterol 90mcg HFA", form: "Inhalation aerosol", status: "current", manufacturers: 53 },
+  { drug: "Sodium Chloride 0.9% 1000mL", form: "Injectable", status: "to_be_discontinued", manufacturers: 95 },
+  { drug: "Hydrocortisone sodium succinate 100mg inj", form: "Injectable", status: "resolved", manufacturers: 7 },
+  { drug: "Lisinopril 10 mg tablet", form: "Oral", status: "not_listed", manufacturers: 37 },
 ]
 
 const onShortageList = rows.filter((r) => r.status !== "not_listed").length
