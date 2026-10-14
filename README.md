@@ -1,78 +1,151 @@
-# RxWatch: Drug Shortage Intelligence Platform
+# RxWatch: FDA Drug Shortage Status for Independent Pharmacies
 
-**Predicting the cause of drug shortages from public FDA data, for pharmacies that don't have access to proprietary purchasing data.**
+RxWatch shows independent pharmacies the FDA shortage status, FDA-reported reasons, and supply facts for every drug in their inventory, using only free public FDA data.
 
-Independent pharmacies face the same unpredictable drug shortage environment as hospital systems, but without the purchasing infrastructure or data access that existing shortage-prediction tools rely on. RxWatch investigates whether the *cause* of a drug shortage (supply-side vs. demand-side) can be predicted using only free, public FDA data, and turns that into a working dashboard a pharmacy can actually use.
+**Status:** working locally. Live demo coming soon.
 
-**Status:** In progress. Core analysis, model, and a working end-to-end dashboard are complete. See [Known Limitations](#known-limitations) below.
+## What it does
 
-## The Question
+Upload an inventory CSV or search a single drug. For each drug, RxWatch shows:
 
-Most existing shortage-prediction research either requires proprietary hospital/pharmacy purchasing data, or predicts *whether* a shortage will happen without addressing *why*. This project asks:
+- **FDA shortage status:** current, to be discontinued, resolved, or not on the shortage list
+- **FDA-reported reasons**, shown verbatim when the FDA has stated one
+- **Labeler count:** distinct companies listing the drug in the FDA NDC Directory, with a "Few labelers" flag when only 1 or 2 list it
+- **Recall history** from FDA enforcement reports
+- **Therapeutic class and dosage form**, when known
+- **An experimental cause estimate** (supply-side vs demand-side), shown only for drugs in a current shortage with no FDA-stated reason and complete model inputs
 
-> Can shortage cause be predicted from a drug's characteristics at the time it's reported (manufacturer concentration, recall history, therapeutic class, dosage form) using only public FDA regulatory data?
+Results are sorted by shortage status, then by fewest labelers. Every result shows the date of the underlying FDA data.
 
-## Key Finding
+## What it does not do
 
-Manufacturer concentration significantly predicts shortage cause. Supply-side shortages cluster at low manufacturer counts; demand-side shortages show a much wider spread (Mann-Whitney U test, p = 3.68 × 10⁻¹⁰). A 4-feature logistic regression model built entirely on public data reaches a cross-validated AUC of 0.81, competitive with published studies that use proprietary institutional data.
+RxWatch does not predict whether a drug will go into shortage. A drug that is not on the FDA shortage list can still become short. Always confirm supply with your wholesaler before making purchasing decisions.
 
-Full methodology, results, and limitations are written up in [`report.tex`](./analysis/report.tex) (not added yet)
+## Research question
 
-## Project Structure
+Most published shortage research relies on proprietary hospital or pharmacy purchasing data. This project asks:
+
+> Can the cause of a drug shortage (supply-side vs demand-side) be predicted using only public FDA data?
+
+### Approach
+
+A logistic regression classifier with four features: manufacturer count (distinct NDC labelers), recall count, therapeutic category, and dosage form. Evaluation is done at the level of independent shortage events, using stratified grouped 5-fold cross-validation repeated over 10 seeds, plus a 1,000-permutation test against chance.
+
+### Findings
+
+| Result | Value |
+|---|---|
+| Labeled shortage events | 60 |
+| Event-level AUC (mean, std) | 0.71 (0.13) |
+| Permutation test p-value | 0.009 |
+| Manufacturer count vs cause (Mann-Whitney U) | p = 0.307, not significant |
+| Median labelers, supply-side vs demand-side | 9 vs 14 |
+
+- The model beats chance, but the signal is weak and depends on a small sample.
+- **Manufacturer concentration does not significantly differ by shortage cause** at the event level, even though supply-side shortages have lower median labeler counts.
+- **The result is sensitive to a few events.** On the original 57 events, using the corrected data, the AUC is 0.64 (permutation p = 0.075). Almost all of the gain to 0.71 comes from three events that were added when the NDC data was completed.
+- **Ingredient-grouped check:** TODO: fill in the AUC and permutation p from results.json, grouping cross-validation folds by active ingredient so related events (such as two rifampin shortages) never split across training and test.
+- A finished-products-only version of manufacturer count (excluding bulk ingredient listings) gives similar results: AUC 0.70, permutation p = 0.013.
+
+**Conclusion:** public FDA data alone gives a weak, sample-dependent signal for shortage cause. The main bottleneck is labeled data: only 421 of 1,627 shortage records (about 26%) state a reason, which leaves 60 usable independent events.
+
+## How the results changed
+
+An earlier version of this project reported much stronger results. Auditing them uncovered two data problems:
+
+| Analysis | Unit of analysis | AUC | Permutation p | Mann-Whitney p |
+|---|---|---|---|---|
+| Original (row level) | 830 rows | 0.81 | not run | 3.68 × 10⁻¹⁰ |
+| Duplicate records collapsed | 57 events | 0.63 | 0.094 | 0.298 |
+| Complete NDC data | 60 events | 0.71 | 0.009 | 0.307 |
+
+1. **Duplicate-record leakage.** The 830 training rows represented only 57 independent shortage events, because each shortage appeared many times across packages and companies. Row-level cross-validation put copies of the same event in both training and test folds, inflating the AUC, and the Mann-Whitney test treated duplicates as independent observations. Even the class balance was an artifact: rows looked 61% supply-side, but events are close to evenly split.
+2. **Incomplete NDC data.** The paginated openFDA pull of the NDC Directory silently stopped on failed requests and was missing 14,415 of 138,427 records (10.4%). This surfaced when ursodiol, a common generic, appeared to have a single manufacturer. The data was replaced with openFDA's official bulk download, verified to match the live record count exactly.
+
+An earlier version of the dashboard also showed "risk scores" and tiers derived from the model. These measured how strongly a drug leaned supply-side, not shortage risk, so they were removed in favor of FDA status and supply facts.
+
+## Data
+
+| Dataset | Records | Version |
+|---|---|---|
+| openFDA Drug Shortages | 1,627 | Snapshot pulled August 20, 2026 |
+| openFDA Drug Enforcement Reports (recalls) | 10,156 | Report dates 2018 through August 2026, snapshot pulled August 20, 2026 |
+| openFDA NDC Directory | 138,427 | Bulk export dated October 13, 2026 |
+
+The shortages and recalls snapshots used for training are archived in `analysis/data/`. The openFDA shortages endpoint changes over time (records are added, revised, and removed), so the training data cannot be re-pulled and is reproducible only from the archived snapshot.
+
+## Methodology notes
+
+- **Shortage event:** one generic name plus initial posting date.
+- **Event labels:** majority vote across distinct companies reporting the event. Exact ties are reported separately in `analysis/results.json`.
+- **Rare categories:** therapeutic categories with fewer than 5 events are grouped as Other/Rare.
+- **Sensitivity analyses** (all pre-declared, none replace the primary result): alternate category threshold, excluding the largest event, dropping events with mixed labels, finished-products-only manufacturer count, and active-ingredient grouping.
+
+All statistics, including the original and superseded results, are recorded in `analysis/results.json`.
+
+## Limitations
+
+- **Small sample.** Only 60 labeled events, and results shift noticeably with a few events.
+- **Timing of features.** Manufacturer counts are measured at data pull time, not at the time of each shortage. Some shortages date back to 2012.
+- **Unknown class for most inventory drugs.** Therapeutic class is only known for drugs with FDA shortage history, so most common inventory drugs show Unknown.
+- **Labeler counts include repackagers**, so they can overstate the number of independent manufacturers.
+- **Approximate name matching.** Inventory names are matched to FDA records through normalization and fuzzy matching. Approximate matches are labeled in the dashboard so they can be verified.
+
+## Project structure
 
 ```
 RxWatch/
-├── analysis/          # Jupyter notebook: data pipeline, feature engineering, model training
-├── backend/            # FastAPI service that serves the trained model
-│   └── data/            # Raw CSVs + trained model (.gitignored - see below)
-├── frontend/           # Next.js dashboard (landing page + inventory scoring tool)
-└── report.tex          # Full research write-up
+├── analysis/
+│   ├── data/            # Archived August 20, 2026 shortages and recalls snapshots
+│   ├── diagnostics/     # Diagnostic and sensitivity scripts
+│   ├── figures/         # Generated figures
+│   ├── results.json     # All reported statistics
+│   └── validation.py    # Event-level validation pipeline
+├── backend/             # FastAPI service: name matching, FDA lookups, model serving
+│   ├── data/            # Pull script, metadata.json, trained model (raw CSVs are gitignored)
+│   └── tests/           # pytest suite
+└── frontend/            # Next.js dashboard
 ```
 
-## How It Works
+## Running locally
 
-1. **Data**: Three openFDA datasets (Drug Shortages, Enforcement/Recalls, NDC Directory) pulled via the openFDA REST API.
-2. **Model**: A logistic regression classifier trained on manufacturer count, recall count, therapeutic category, and dosage form, predicting whether a shortage is supply-side or demand-side driven.
-3. **Backend**: FastAPI serves the trained model and handles drug name search/matching (including brand-name lookup).
-4. **Frontend**: A Next.js dashboard where a pharmacy can search a single drug or upload their full inventory and get back a ranked risk table.
+**Backend** (from the repo root):
 
-## Running Locally
-
-**Backend:**
-```bash
+```
+python3 -m venv .venv
+source .venv/bin/activate
+pip install fastapi uvicorn pandas scikit-learn joblib rapidfuzz
 cd backend
-pip install fastapi uvicorn pandas scikit-learn joblib rapidfuzz --break-system-packages
 python3 -m uvicorn main:app --reload --port 8000
 ```
 
-Dev dependency for running the backend test suite:
-```bash
-pip install pytest --break-system-packages
-pytest tests/test_normalize.py
-```
-
 **Frontend** (in a separate terminal):
-```bash
+
+```
 cd frontend
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
-You'll need your own `.env.local` in `frontend/` with:
+Create `frontend/.env.local` containing:
+
 ```
 BACKEND_URL=http://localhost:8000
 ```
 
-Raw data files (`backend/data/*.csv`, `*.json`) are not included in this repo due to size; the pull script (`data/pull_openFDA_data.py`) can regenerate them from the openFDA API.
+If pnpm reports ignored build scripts, run `pnpm approve-builds` and approve `msw`.
 
-## Known Limitations
+**Data:** raw data files are not included due to size. To regenerate the NDC Directory (uses the openFDA bulk download by default):
 
-- **Scope**: the model is trained only on the ~26% of shortage records with a stated reason. It does not predict *whether* a drug will enter shortage, only the likely cause for drugs already in the shortage dataset.
-- **Drug class/dosage form coverage**: frequently shows as "Unknown" for drugs without prior shortage history, due to a name-formatting mismatch between the shortages dataset and the NDC directory (not yet resolved).
-- **Public-data tradeoff**: performance (AUC 0.81) sits below models trained on proprietary institutional data (e.g., UNC AJHP's 0.93 C-statistic), an expected tradeoff given this project's public-data-only scope.
+```
+cd backend
+python3 data/pull_openFDA_data.py ndc
+```
 
-Full discussion in the [Limitations section](./report.tex) of the write-up.
+**Tests:**
 
-## Related Work
-
-This project builds on and differentiates from prior shortage-prediction research, including hospital procurement models (China), pharmacy dispensing models (Canada), and institutional purchasing models (UNC). See the Literature Review in the full report for details.
+```
+pip install pytest
+cd backend
+python3 -m pytest tests/ -v
+```
