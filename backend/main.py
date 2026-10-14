@@ -7,12 +7,15 @@ is only consulted for an explicitly-gated, labeled experimental estimate
 
 Run with: uvicorn main:app --reload --port 8000
 
-Expects these files to exist:
-  - rxwatch_model.pkl           (trained LogisticRegression, 9 features)
-  - rxwatch_model_columns.pkl   (list of 9 column names, in order)
-  - ndc_directory.csv           (NDC directory, manufacturer_count + brand/generic name lookup)
-  - shortages.csv               (drug class / dosage form / status / reason lookup)
-  - recalls.csv                 (recall_count lookup)
+Expects these files to exist (the compact *_lookup.csv.gz files are built
+by data/build_lookup_files.py from the full raw pulls -- see that script
+for exactly which columns/rows each one keeps and why):
+  - rxwatch_model.pkl           (trained LogisticRegression, 10 features)
+  - rxwatch_model_columns.pkl   (list of 10 column names, in order)
+  - ndc_lookup.csv.gz           (NDC directory columns actually used: manufacturer_count +
+                                  brand/generic name lookup)
+  - shortages_lookup.csv.gz     (drug class / dosage form / status / reason lookup)
+  - recalls_lookup.csv.gz       (recall_count per generic_name, pre-aggregated)
   - metadata.json               (pulled_at date shown to users as dataAsOf)
 """
 
@@ -43,9 +46,15 @@ app.add_middleware(
 model = joblib.load("data/rxwatch_model.pkl")
 model_columns = joblib.load("data/rxwatch_model_columns.pkl")
 
-ndc = pd.read_csv("data/ndc_directory.csv")
-shortages = pd.read_csv("data/shortages.csv")
-recalls = pd.read_csv("data/recalls.csv")
+# Compact, committed lookup files (see data/build_lookup_files.py) -- not
+# the full raw pulls, which are gitignored and too large to deploy (the
+# NDC directory alone is ~116 MB). Each keeps only the columns this file
+# actually reads; recalls_lookup.csv.gz is pre-aggregated (generic_name,
+# recall_count) since main.py never reads a raw recalls row, only a
+# groupby count.
+ndc = pd.read_csv("data/ndc_lookup.csv.gz")
+shortages = pd.read_csv("data/shortages_lookup.csv.gz")
+recall_counts_by_generic = pd.read_csv("data/recalls_lookup.csv.gz").set_index("generic_name")["recall_count"]
 
 with open("data/metadata.json") as _f:
     DATA_AS_OF = json.load(_f)["pulled_at"]
@@ -257,13 +266,8 @@ print(
 
 # shortage status + stated reasons are resolved further down, once
 # normalize_query_name exists -- see resolve_shortage_status_and_reasons.
-
-# recall count per generic_name
-recall_col = "openfda.generic_name" if "openfda.generic_name" in recalls.columns else "generic_name"
-if recall_col in recalls.columns:
-    recall_counts_by_generic = recalls.groupby(recall_col).size()
-else:
-    recall_counts_by_generic = pd.Series(dtype=int)
+# recall_counts_by_generic (recall count per generic_name) is loaded
+# directly from data/recalls_lookup.csv.gz above, already pre-aggregated.
 
 # ------------------------------------------------------------------------
 # category/dosage mapping : must match training exactly, including the
