@@ -2,8 +2,6 @@
 
 RxWatch shows independent pharmacies the FDA shortage status, FDA-reported reasons, and supply facts for every drug in their inventory, using only free public FDA data.
 
-**Status:** working locally. Live demo coming soon.
-
 ## What it does
 
 Upload an inventory CSV or search a single drug. For each drug, RxWatch shows:
